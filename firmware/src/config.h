@@ -202,6 +202,15 @@ typedef enum {
 #define UI_BUTTON_PRESSED_MV 400   // node below this = pressed (floor is ~0V)
 #define UI_BATTERY_VALID_MV 1200   // node above this = a trustworthy battery sample
 
+// Recording heartbeat: a dim blink in the battery colour every 30s while a
+// capture session is running, so a forgotten session is discoverable at a
+// glance without the device being conspicuous. It never pre-empts a readout.
+// The dim fraction is num/den of the already-brightness-scaled colour; raise
+// UI_REC_HEARTBEAT_NUM on the bench if it is too faint through your diffuser.
+#define UI_REC_HEARTBEAT_MS 30000
+#define UI_REC_HEARTBEAT_NUM 1
+#define UI_REC_HEARTBEAT_DEN 4
+
 // =============================================================================
 // SD RECORDER - Sense microSD slot (pins are hardwired on the daughterboard)
 // =============================================================================

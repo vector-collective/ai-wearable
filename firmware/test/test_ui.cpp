@@ -75,6 +75,17 @@ int main()
     assert(full.r == 255 && full.g == 0);
     printf("disk color map OK\n");
 
+    // Dimming preserves hue and never collapses a lit channel to black
+    ui_rgb_t g = ui_battery_color(3850);              // green (0,220,40)
+    ui_rgb_t gd = ui_dim(g, 1, 4);
+    assert(gd.r == 0);                                // an off channel stays off
+    assert(gd.g == 55 && gd.b == 10);                 // scaled, still green-dominant
+    assert(gd.g < g.g && gd.b < g.b);
+    ui_rgb_t faint = ui_dim((ui_rgb_t){3, 0, 0}, 1, 8); // would floor to 0
+    assert(faint.r == 1);                             // kept visible, hue intact
+    assert(ui_dim((ui_rgb_t){0, 0, 0}, 1, 4).g == 0); // black stays black
+    printf("dim helper OK\n");
+
     // WAV header: canonical fields and patched sizes
     uint8_t h[WAV_HEADER_BYTES];
     wav_header_fill(h, 16000, 320000);

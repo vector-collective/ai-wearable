@@ -80,6 +80,18 @@ static inline ui_rgb_t ui_battery_color(uint16_t mv)
     return (ui_rgb_t){255, 0, 0};                    // red
 }
 
+// Scale a colour down by num/den, keeping at least one unit of any channel
+// that was non-zero so a dimmed colour stays recognisably that colour rather
+// than collapsing to black or to a different hue.
+static inline ui_rgb_t ui_dim(ui_rgb_t c, uint8_t num, uint8_t den)
+{
+    ui_rgb_t o;
+    o.r = (uint8_t) (c.r ? (c.r * num / den > 0 ? c.r * num / den : 1) : 0);
+    o.g = (uint8_t) (c.g ? (c.g * num / den > 0 ? c.g * num / den : 1) : 0);
+    o.b = (uint8_t) (c.b ? (c.b * num / den > 0 ? c.b * num / den : 1) : 0);
+    return o;
+}
+
 // SD space remaining, same spectrum: blue = mostly free ... red = nearly full.
 static inline ui_rgb_t ui_disk_color(uint8_t free_pct)
 {

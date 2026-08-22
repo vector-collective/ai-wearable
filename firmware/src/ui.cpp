@@ -60,6 +60,7 @@ static uint16_t node_read_mv()
 }
 
 static uint16_t last_battery_mv = 0;
+static uint32_t last_heartbeat_ms = 0;
 
 void ui_init()
 {
@@ -142,6 +143,20 @@ void ui_loop(uint32_t now)
     }
     default:
         break;
+    }
+
+    // Recording heartbeat. Only fires when the LED is otherwise idle, so it
+    // can never truncate a battery or SD readout; if one is showing when the
+    // heartbeat falls due it simply lands as soon as that finishes.
+    if (sd_recorder_active()) {
+        if (last_heartbeat_ms == 0) {
+            last_heartbeat_ms = now;
+        } else if (pattern == PAT_OFF && (now - last_heartbeat_ms) >= UI_REC_HEARTBEAT_MS) {
+            start_blink(ui_dim(ui_battery_color(last_battery_mv), UI_REC_HEARTBEAT_NUM, UI_REC_HEARTBEAT_DEN), 1, now);
+            last_heartbeat_ms = now;
+        }
+    } else {
+        last_heartbeat_ms = 0;
     }
 
     run_pattern(now);

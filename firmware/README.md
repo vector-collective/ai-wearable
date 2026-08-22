@@ -121,7 +121,8 @@ SD card *only* while a video session is running, so the two can be joined
 afterwards. Outside a video session, audio exists solely as the live
 transcription stream.
 
-**The LED is off at all times except while showing a readout.**
+**The LED is off at all times except while showing a readout**, plus a dim
+heartbeat while a capture is running (below).
 
 | Context | Input | Action | LED |
 |---|---|---|---|
@@ -134,6 +135,15 @@ transcription stream.
 Either press stops a running capture: a held press must not be a dead
 gesture. Starting still requires the deliberate 1.5s hold, so the guarded
 control is the one that begins recording, not the one that ends it.
+
+**Recording heartbeat.** While a capture is running the LED gives a single
+dim blink in the battery colour every 30s (`UI_REC_HEARTBEAT_MS`), so a
+session you forgot to stop is discoverable at a glance — and the colour
+tells you whether the cell will see it through. It only fires when the LED
+is otherwise idle, so it can never truncate a battery or SD readout. The dim
+fraction is `UI_REC_HEARTBEAT_NUM`/`UI_REC_HEARTBEAT_DEN` (default 1/4) of
+the already brightness-scaled colour; raise it on the bench if it is too
+faint through your enclosure, lower it if it is conspicuous.
 
 A session writes to the Sense microSD: `/rec/S0001/seg01/f000000.jpg…` (one
 frame per `VIDEO_FRAME_INTERVAL_MS`, default 30s) plus `audio.wav` (mono
