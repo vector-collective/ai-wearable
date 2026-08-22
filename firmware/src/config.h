@@ -17,7 +17,12 @@
 #define MANUFACTURER_NAME "Based Hardware"
 
 // =============================================================================
-// POWER MANAGEMENT - Optimized for MINIMUM 6-8 hours, targeting 10+ hours
+// POWER MANAGEMENT
+// NOTE: the light-sleep path below is currently unreachable - loop_app()
+// refreshes lastActivity on every iteration while connected, which is a
+// precondition enableLightSleep() also requires. Left as-is deliberately:
+// esp_light_sleep_start() gates APB out from under a running I2S peripheral,
+// so re-enabling it means stopping the mics first.
 // =============================================================================
 // CPU Frequency Management - Aggressive power optimization
 #define MAX_CPU_FREQ_MHZ 100   // Further reduced from 120MHz - still sufficient
@@ -128,14 +133,14 @@ typedef enum {
 #define STATUS_REPORT_INTERVAL_MS 120000 // 2 minutes (was 30 seconds)
 
 // =============================================================================
-// MICROPHONE CONFIGURATION - Quad INMP441 I2S array (belt-worn build)
+// MICROPHONE CONFIGURATION - INMP441 I2S array (belt-worn build)
 // =============================================================================
 // Bus 0 carries the two case mics; bus 1 carries the rear case mic (left slot)
-// and the detachable lapel pod (right slot). GPIO1/GPIO2 (D0/D1) are avoided:
-// this firmware uses them for the power button and battery ADC.
-// Bus 0 moved off GPIO7/8/9: those are hardwired to the Sense board's microSD
-// slot. GPIO43/44 are the old UART pins - free here because the console runs
-// over native USB.
+// and the detachable lapel pod (right slot).
+// Bus 0 avoids GPIO7/8/9 (hardwired to the Sense board's microSD) and uses
+// GPIO43/44, the old UART pins - free here because the console runs over
+// native USB (ARDUINO_USB_CDC_ON_BOOT, stated explicitly in platformio.ini).
+// GPIO1/GPIO2 belong to the case UI: see the CASE UI section below.
 #define MIC_BUS0_SCK_PIN 6  // XIAO D5 - case pair bit clock
 #define MIC_BUS0_WS_PIN 43  // XIAO D6 - case pair word select
 #define MIC_BUS0_SD_PIN 44  // XIAO D7 - case pair data (A: L/R->GND, B: L/R->3V3)

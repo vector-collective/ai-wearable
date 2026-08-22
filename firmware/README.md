@@ -1,26 +1,40 @@
-# Belt-Worn Audio Capture — Quad INMP441 Firmware
+# Belt-Worn Audio Capture Firmware
 
 Patched [omiGlass firmware](https://github.com/BasedHardware/omi/tree/main/omiGlass/firmware)
-(BasedHardware/omi @ `1cc793ce2ec9`, MIT — see `LICENSE.upstream`) for the
-belt-worn capture device: XIAO ESP32S3 + four INMP441 I2S mics, streaming
-Opus over BLE to the Omi phone app.
+(BasedHardware/omi @ `1cc793ce2ec9`, MIT — see `LICENSE.upstream`) for a
+belt-worn capture device: XIAO ESP32S3 Sense + INMP441 I2S microphones,
+streaming Opus over BLE to the Omi phone app for live transcription, with a
+button-toggled local video+audio session on the microSD.
 
-**What changed vs upstream** (full diff in `patches/quad-inmp441.patch`,
-touching only `src/mic.cpp` and `src/config.h`):
+Audio capture is **always on**. Video is the only thing the button toggles,
+and audio is written to SD only while a video session runs, so the two can
+be joined afterwards.
 
-- PDM capture (XIAO Sense onboard mic) replaced with **two standard-mode
-  I2S buses, stereo, 32-bit slots** for four INMP441s.
-- **Source selection**: per 100ms block, mean-abs level per channel; the
-  lapel wins while it carries signal (with a 5s hold so speech pauses don't
-  bounce it), otherwise the loudest case mic wins with 3-blocks-at-1.5x
-  hysteresis. Selected channel is emitted mono into the unchanged
-  Opus/BLE pipeline — `app.cpp` and the Omi protocol are untouched.
-- **Lapel is optional and hot-pluggable**: its data line is pulled down, so
-  an unplugged lapel reads as silence and selection falls back to the case
-  mics automatically. Plugging it back in re-activates it within a block.
+**What changed vs upstream** (full diff in `patches/quad-inmp441.patch`):
+
+- **Microphones**: PDM capture (the Sense board's onboard mic) replaced with
+  two standard-mode I2S buses, stereo, 32-bit slots, for up to four
+  INMP441s. Per 100ms block the firmware measures each channel and emits one
+  as mono into the unchanged Opus/BLE pipeline. Changeover happens only
+  during near-silence — switching mid-utterance splices two different room
+  responses together, which clicks and degrades speaker attribution
+  downstream. A lapel pod, when fitted, wins while it carries signal.
+- **Case UI** (`ui.cpp`, `ui_logic.h`): button + WS2812 RGB LED state
+  machine for the battery gauge and video session control.
+- **Recorder** (`sd_recorder.cpp`, `recorder_util.h`): a FreeRTOS task that
+  owns the camera and SD card. Camera grabs and card writes routinely stall
+  for 100–500ms, so keeping them off the audio path is what allows
+  full-resolution capture without dropping samples.
+- **Camera lifecycle**: powered up on video-session start, powered down on
+  stop. Streaming stills to the phone is disabled — this build has no use
+  for them and they contended for the frame buffer.
 - **Selection logging** over USB serial: every source change, plus a levels
-  line every 10s (`MIC: levels A=.. B=.. C=.. D=..`) — this is the data for
-  deciding how often the lapel actually earns its keep.
+  line every 10s (`MIC: levels A=.. B=.. C=.. D=..`) — bring-up instrument
+  and the data for deciding how much each mic actually earns its keep.
+
+Everything is host-testable: `./test/run.sh` compiles the real `mic.cpp`
+against stub drivers with plain g++, no ESP toolchain needed, and runs the
+mic suite against both lapel configurations plus the UI suite.
 
 ## Wiring (all 11 header pins allocated)
 
@@ -161,8 +175,9 @@ pio run -e seeed_xiao_esp32s3 -t upload   # board on USB-C
 pio device monitor                        # watch mic logs at 115200
 ```
 
-No camera board required — camera init failure is non-fatal upstream and
-audio runs regardless.
+The camera is not touched at boot, so a board without the Sense
+daughterboard still streams audio normally — video sessions simply report
+that the camera failed to start and record audio only.
 
 ## Bring-up checklist
 

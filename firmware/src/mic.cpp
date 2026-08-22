@@ -5,12 +5,18 @@
 
 #include "config.h"
 
-// Quad INMP441 capture: two standard-mode I2S buses, stereo each.
+// INMP441 capture: two standard-mode I2S buses, stereo each.
 //   Bus 0 (I2S_NUM_0): case pair   -> A = left (L/R sel -> GND), B = right (L/R sel -> 3V3)
 //   Bus 1 (I2S_NUM_1): rear/lapel  -> C = left (L/R sel -> GND), D = lapel, right (L/R sel -> 3V3)
-// All four share the 16 kHz clock domain; each block we measure per-channel level,
-// pick one source (lapel if present, else best case mic) and hand a mono block to
-// the unchanged Opus/BLE pipeline via the existing callback.
+// All share the 16 kHz clock domain. Each block we measure per-channel level,
+// pick one source and hand a mono block to the unchanged Opus/BLE pipeline via
+// the existing callback.
+//
+// Selection order: the lapel wins while it carries signal (when MIC_LAPEL_FITTED),
+// otherwise the loudest case mic wins - but a case changeover is only permitted
+// during near-silence. Switching mid-utterance splices two different room
+// responses together: a broadband click that reads as a plosive, and a
+// discontinuity that corrupts speaker embeddings downstream.
 
 #define MIC_FRAME_BYTES (2 * sizeof(int32_t)) // one stereo frame, 32-bit slots
 
