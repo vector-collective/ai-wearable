@@ -125,9 +125,12 @@ typedef enum {
 // Bus 0 carries the two case mics; bus 1 carries the rear case mic (left slot)
 // and the detachable lapel pod (right slot). GPIO1/GPIO2 (D0/D1) are avoided:
 // this firmware uses them for the power button and battery ADC.
-#define MIC_BUS0_SCK_PIN 7 // XIAO D8 - case pair bit clock
-#define MIC_BUS0_WS_PIN 8  // XIAO D9 - case pair word select
-#define MIC_BUS0_SD_PIN 9  // XIAO D10 - case pair data (A: L/R->GND, B: L/R->3V3)
+// Bus 0 moved off GPIO7/8/9: those are hardwired to the Sense board's microSD
+// slot. GPIO43/44 are the old UART pins - free here because the console runs
+// over native USB.
+#define MIC_BUS0_SCK_PIN 6  // XIAO D5 - case pair bit clock
+#define MIC_BUS0_WS_PIN 43  // XIAO D6 - case pair word select
+#define MIC_BUS0_SD_PIN 44  // XIAO D7 - case pair data (A: L/R->GND, B: L/R->3V3)
 #define MIC_BUS1_SCK_PIN 3 // XIAO D2 - rear/lapel bit clock
 #define MIC_BUS1_WS_PIN 4  // XIAO D3 - rear/lapel word select
 #define MIC_BUS1_SD_PIN 5  // XIAO D4 - rear/lapel data (C: L/R->GND, lapel D: L/R->3V3)
@@ -148,6 +151,31 @@ typedef enum {
 #define MIC_SWITCH_RATIO_DEN 2
 #define MIC_SWITCH_BLOCKS 3         // ...for this many consecutive 100ms blocks
 #define MIC_STATS_INTERVAL_MS 10000 // Periodic level log for source analysis
+
+// =============================================================================
+// CASE UI - button + WS2812 RGB LED (shared pin with battery divider)
+// =============================================================================
+// The WS2812 data-in and the battery voltage divider share GPIO2 (D1): the pin
+// is read as ADC just before each LED update, then driven as digital output.
+// Divider: BAT+ --[100k]-- GPIO2 --[100k]-- GND (ratio 2:1).
+#define UI_LED_PIN 2           // XIAO D1 - WS2812 DIN + battery ADC node
+#define UI_LED_BRIGHTNESS 40   // 0-255; keep modest for current and glare
+#define UI_LONG_PRESS_MS 700   // press >= this = long press
+#define UI_DEBOUNCE_MS 50
+#define BATTERY_DIVIDER_NUM 2  // (Rtop+Rbot)/Rbot with 100k/100k
+
+// =============================================================================
+// SD RECORDER - Sense microSD slot (pins are hardwired on the daughterboard)
+// =============================================================================
+#define SD_SPI_SCK_PIN 7   // XIAO D8
+#define SD_SPI_MISO_PIN 8  // XIAO D9
+#define SD_SPI_MOSI_PIN 9  // XIAO D10
+#define SD_CS_PIN 21       // shares the net with the onboard LED: once the SD
+                           // is mounted, GPIO21 must never be driven as an LED
+#define SD_SPI_FREQ_HZ 20000000
+#define VIDEO_FPS 5                // JPEG frames per second while recording
+#define REC_ROOT "/rec"
+#define WAV_HEADER_PATCH_MS 5000   // crash-safe header refresh interval
 
 // =============================================================================
 // OPUS CODEC CONFIGURATION

@@ -22,25 +22,61 @@ touching only `src/mic.cpp` and `src/config.h`):
   line every 10s (`MIC: levels A=.. B=.. C=.. D=..`) — this is the data for
   deciding how often the lapel actually earns its keep.
 
-## Wiring (final, supersedes earlier drafts)
+## Wiring (final — all 11 header pins allocated)
 
-GPIO1 (D0) and GPIO2 (D1) are **reserved by this firmware** for the power
-button and battery ADC — bus 1 therefore lives on D2–D4.
-
-| Signal | Case pair (bus 0) | Rear + lapel (bus 1) |
+| Pin | GPIO | Function |
 |---|---|---|
-| SCK    | D8 (GPIO7)  | D2 (GPIO3) |
-| WS     | D9 (GPIO8)  | D3 (GPIO4) |
-| SD     | D10 (GPIO9) | D4 (GPIO5) |
-| VDD    | 3V3         | 3V3        |
-| GND    | GND         | GND        |
+| D0  | 1  | Case button (momentary, to GND) |
+| D1  | 2  | **Dual use**: WS2812 LED data-in + battery divider node |
+| D2  | 3  | Bus 1 SCK (rear mic C + lapel D) |
+| D3  | 4  | Bus 1 WS |
+| D4  | 5  | Bus 1 SD |
+| D5  | 6  | Bus 0 SCK (case mics A + B) |
+| D6  | 43 | Bus 0 WS |
+| D7  | 44 | Bus 0 SD |
+| D8  | 7  | microSD SPI SCK (hardwired on Sense board) |
+| D9  | 8  | microSD SPI MISO (hardwired) |
+| D10 | 9  | microSD SPI MOSI (hardwired; CS is GPIO21 internally) |
 
 Per-mic L/R select: **A** (front-up) and **C** (rear) tie L/R → GND;
 **B** (out-up) and lapel **D** tie L/R → 3V3. The lapel connector carries
 bus 1's SCK/WS/SD plus 3V3/GND (5 pins).
 
-Optional extras the stock firmware already supports: momentary power button
-on D0→GND (2s long-press = off), status LED is the onboard GPIO21 LED.
+**Battery divider** (enables the LED battery gauge): BAT+ —[100kΩ]— D1 node
+—[100kΩ]— GND. The WS2812's DIN connects to the same D1 node; power the
+WS2812 from the battery rail (3.5–4.2V is in spec), GND common.
+
+**Power off** is the expansion base's physical battery switch — the old
+2s-hold firmware power-off is gone; long press now belongs to recording.
+
+## Case controls (button + RGB LED)
+
+| Context | Input | Action | LED |
+|---|---|---|---|
+| Idle | short press | battery check | solid 2s, cool→warm = full→low, red = almost dead, orange = swap now |
+| Idle | long press (700ms) | start recording | 1 blink in battery color |
+| Recording | short press | bookmark + segment split | 1 cyan blink |
+| Recording | long press | stop recording | 2 blinks in SD-free-space color (same spectrum) |
+| — | SD mount fails on start | stays idle | 3 fast red blinks |
+
+Recording writes to the Sense microSD per session:
+`/rec/S0001/seg01/f000000.jpg…` (JPEG frames at `VIDEO_FPS`, default 5) +
+`audio.wav` (selected-mic mono 16k) per segment, and `bookmarks.csv`
+(millis, segment, frame). Each bookmark closes the current segment and opens
+the next, so bookmarks are also clean file boundaries. WAV headers are
+re-patched every 5s, so a crash still leaves playable audio.
+
+Assemble a segment into a normal video on the server:
+
+```bash
+ffmpeg -framerate 5 -i seg01/f%06d.jpg -i seg01/audio.wav \
+  -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest seg01.mp4
+```
+
+**GPIO21 caveat:** the SD's chip select shares the net with the onboard
+orange LED. Once the SD has been mounted, the firmware stops driving the
+status LED entirely (`statusLedWrite` guard) — the WS2812 is the sole
+indicator from then on.
 
 ## Build & flash
 

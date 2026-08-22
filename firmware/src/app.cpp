@@ -12,6 +12,18 @@
 #include "mic.h"
 #include "opus_encoder.h"
 #include "ota.h"
+#include "sd_recorder.h"
+#include "ui.h"
+
+// GPIO21 doubles as the SD card's chip select: once the SD is mounted the
+// status LED may never be driven again, or card transactions get corrupted.
+// The external WS2812 (ui.cpp) takes over user signaling.
+static inline void statusLedWrite(int v)
+{
+    if (!sd_recorder_mounted()) {
+        digitalWrite(STATUS_LED_PIN, v);
+    }
+}
 
 // Battery state
 float batteryVoltage = 0.0f;
@@ -139,9 +151,9 @@ void updateLED()
         // 5 quick blinks over 1.5 seconds total (inverted logic: HIGH=OFF, LOW=ON)
         if (now - bootStartTime < 1500) {
             int blinkPhase = ((now - bootStartTime) / 150) % 2;
-            digitalWrite(STATUS_LED_PIN, !blinkPhase);
+            statusLedWrite( !blinkPhase);
         } else {
-            digitalWrite(STATUS_LED_PIN, HIGH); // OFF
+            statusLedWrite( HIGH); // OFF
             ledMode = LED_NORMAL_OPERATION;
             bootStartTime = 0;
         }
@@ -154,9 +166,9 @@ void updateLED()
         // 2 quick blinks over 800ms total (inverted logic: HIGH=OFF, LOW=ON)
         if (now - powerOffStartTime < 800) {
             int blinkPhase = ((now - powerOffStartTime) / 200) % 2;
-            digitalWrite(STATUS_LED_PIN, !blinkPhase);
+            statusLedWrite( !blinkPhase);
         } else {
-            digitalWrite(STATUS_LED_PIN, HIGH); // OFF
+            statusLedWrite( HIGH); // OFF
             delay(100);
             shutdownDevice();
         }
@@ -166,11 +178,11 @@ void updateLED()
     default:
         if (connected) {
             // Connected - LED solid ON
-            digitalWrite(STATUS_LED_PIN, LOW);
+            statusLedWrite( LOW);
         } else {
             // Disconnected - LED slow blink (1 sec on, 1 sec off)
             int blinkPhase = (now / 1000) % 2;
-            digitalWrite(STATUS_LED_PIN, blinkPhase ? HIGH : LOW);
+            statusLedWrite( blinkPhase ? HIGH : LOW);
         }
         break;
     }
@@ -179,9 +191,9 @@ void updateLED()
 void blinkLED(int count, int delayMs)
 {
     for (int i = 0; i < count; i++) {
-        digitalWrite(STATUS_LED_PIN, HIGH);
+        statusLedWrite( HIGH);
         delay(delayMs);
-        digitalWrite(STATUS_LED_PIN, LOW);
+        statusLedWrite( LOW);
         delay(delayMs);
     }
 }
@@ -209,13 +221,8 @@ void handleButton()
         lastDebounceTime = now;
 
     } else if (currentButtonState && buttonDown && !longPressTriggered) {
-        // Button still held - check for long press
-        unsigned long pressDuration = now - buttonPressTime;
-        if (pressDuration >= 2000) {
-            // Long press threshold reached - trigger power off immediately
-            longPressTriggered = true;
-            ledMode = LED_POWER_OFF_SEQUENCE;
-        }
+        // Long presses are owned by the case UI (ui.cpp): record start/stop.
+        // Power-off is the expansion base's physical battery switch.
 
     } else if (!currentButtonState && buttonDown) {
         // Button just released - debounce
@@ -256,6 +263,14 @@ void exitPowerSave()
     if (powerSaveMode) {
         setCpuFrequencyMhz(NORMAL_CPU_FREQ_MHZ); // Back to 80MHz
         powerSaveMode = false;
+    }
+}
+
+void app_register_activity()
+{
+    lastActivity = millis();
+    if (powerSaveMode) {
+        exitPowerSave();
     }
 }
 
@@ -309,7 +324,7 @@ void shutdownDevice()
     }
 
     // Turn off LED (inverted logic)
-    digitalWrite(STATUS_LED_PIN, HIGH);
+    statusLedWrite( HIGH);
 
     // Enter deep sleep
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_1, 0); // Wake on button press
@@ -325,6 +340,8 @@ void onMicData(int16_t *data, size_t samples)
 {
     // Feed PCM data to Opus encoder
     opus_receive_pcm(data, samples);
+    // Tee the same selected-mic stream into the local SD recording, if active
+    sd_recorder_feed_audio(data, samples);
 }
 
 void onOpusEncoded(uint8_t *data, size_t len)
@@ -808,13 +825,16 @@ void setup_app()
     pinMode(STATUS_LED_PIN, OUTPUT);
 
     // LED uses inverted logic: HIGH = OFF, LOW = ON
-    digitalWrite(STATUS_LED_PIN, HIGH);
+    statusLedWrite( HIGH);
 
     // Setup button interrupt
     attachInterrupt(digitalPinToInterrupt(POWER_BUTTON_PIN), buttonISR, CHANGE);
 
     // Start LED boot sequence
     ledMode = LED_BOOT_SEQUENCE;
+
+    // Case UI: button + WS2812 + battery gauge
+    ui_init();
 
     // Power optimization from config.h
     setCpuFrequencyMhz(NORMAL_CPU_FREQ_MHZ);
@@ -872,6 +892,10 @@ void loop_app()
 
     // Handle button presses
     handleButton();
+
+    // Case UI state machine (battery check / record / bookmark / stop)
+    ui_loop(now);
+    sd_recorder_loop(now);
 
     // Update LED
     updateLED();
