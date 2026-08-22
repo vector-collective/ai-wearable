@@ -94,29 +94,58 @@ Lapel cable: 28 AWG stranded, shielded or twisted pairs, shield grounded at
 the XIAO end only. Order the connector **3V3 / SCK / GND / SD / WS** so the
 ground sits between clock and data.
 
-## Case controls (button + RGB LED)
+## Two capture paths
+
+**Audio is always on.** From boot, the mics capture continuously and stream
+Opus over BLE to the phone for live transcription. Nothing gates this — no
+button, no toggle. This is the path the word-choice and recall work depends
+on, so it must never depend on remembering to start it.
+
+**Video is the only thing the button toggles**, and audio is written to the
+SD card *only* while a video session is running, so the two can be joined
+afterwards. Outside a video session, audio exists solely as the live
+transcription stream.
 
 | Context | Input | Action | LED |
 |---|---|---|---|
 | Idle | short press | battery check | solid 2s, cool→warm = full→low, red = almost dead, orange = swap now |
-| Idle | long press (1.5s, deliberate) | start recording | 1 blink in battery color |
-| Recording | short press | bookmark + segment split | 1 cyan blink |
-| Recording | long press | stop recording | 2 blinks in SD-free-space color (same spectrum) |
+| Idle | long press (1.5s, deliberate) | **start video session** | 1 blink in battery color |
+| Video running | short press | bookmark + segment split | 1 cyan blink |
+| Video running | long press | stop video session | 2 blinks in SD-free-space color (same spectrum) |
 | — | SD mount fails on start | stays idle | 3 fast red blinks |
 
-Recording writes to the Sense microSD per session:
-`/rec/S0001/seg01/f000000.jpg…` (JPEG frames at `VIDEO_FPS`, default 5) +
-`audio.wav` (selected-mic mono 16k) per segment, and `bookmarks.csv`
-(millis, segment, frame). Each bookmark closes the current segment and opens
-the next, so bookmarks are also clean file boundaries. WAV headers are
-re-patched every 5s, so a crash still leaves playable audio.
+A video session writes to the Sense microSD:
+`/rec/S0001/seg01/f000000.jpg…` (one frame per `VIDEO_FRAME_INTERVAL_MS`,
+default 30s) + `audio.wav` (mono 16k) per segment, and `bookmarks.csv`
+(`wav_sample, millis, segment, frame`). The sample offset is authoritative —
+`millis()` and the WAV timeline diverge whenever a block is dropped. Each
+bookmark closes the current segment and opens the next, so bookmarks are
+also clean file boundaries. WAV headers are re-patched every 5s, so a crash
+still leaves playable audio.
 
-Assemble a segment into a normal video on the server:
+One frame per 30s is deliberate, not a limitation: it matches the SenseCam
+evidence base for photo-cued recall while costing ~1/150th the SD and CPU
+load of 5fps — load that would otherwise compete with the audio it is meant
+to accompany. The camera is idle outside video sessions (streaming stills to
+the phone is disabled), so it costs nothing the rest of the time.
+
+Assemble a segment on the server (`1/30` = one frame per 30 seconds):
 
 ```bash
-ffmpeg -framerate 5 -i seg01/f%06d.jpg -i seg01/audio.wav \
+ffmpeg -framerate 1/30 -i seg01/f%06d.jpg -i seg01/audio.wav \
   -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest seg01.mp4
 ```
+
+## Phase 1 vs later
+
+Phase 1 builds **without the lapel pod** — the connector, wiring and firmware
+path are provisioned, the mic is not fitted. `MIC_LAPEL_FITTED 0` in
+`config.h` compiles out the lapel detection so a floating input can't be
+mistaken for a live pod; set it to `1` when you build the pod.
+
+Note that fitting the lapel is the single largest available improvement to
+transcript quality — roughly 10–20 dB of SNR against the case mics, more than
+every other change in this firmware combined.
 
 **GPIO21 caveat:** the SD's chip select shares the net with the onboard
 orange LED. Once the SD has been mounted, the firmware stops driving the
@@ -152,7 +181,31 @@ audio runs regardless.
 | Define | Default | Meaning |
 |---|---|---|
 | `MIC_BIT_SHIFT` | 14 | 32-bit slot → int16; smaller = louder (13 ≈ 2x) |
+| `MIC_LAPEL_FITTED` | 0 | Set 1 when the lapel pod exists |
 | `MIC_LAPEL_PRESENT_LEVEL` | 40 | Level that marks the lapel live |
 | `MIC_LAPEL_HOLD_MS` | 5000 | Lapel stays selected this long after signal |
 | `MIC_SWITCH_RATIO_*`, `MIC_SWITCH_BLOCKS` | 3/2, 3 | Case-mic switch hysteresis |
+| `MIC_SWITCH_SILENCE_LEVEL` | 60 | Changeover only below this level (no mid-word splices) |
 | `MIC_STATS_INTERVAL_MS` | 10000 | Cadence of the levels log line |
+| `CAMERA_FRAME_SIZE` | `FRAMESIZE_UXGA` | 1600×1200 |
+| `CAMERA_JPEG_QUALITY` | 10 | 10–63, **lower is better** |
+| `VIDEO_FRAME_INTERVAL_MS` | 30000 | One frame per 30s |
+
+### Choosing frame interval and quality
+
+Storage is not the constraint — the SPI SD interface and the camera's grab
+time are. Because the recorder runs in its own task, a slow grab costs frame
+latency, never audio. Rough figures at quality 10:
+
+| Frame size | Per frame | At 1/30s | 32GB holds |
+|---|---|---|---|
+| UXGA 1600×1200 | ~250 kB | ~30 MB/h | ~1000 h |
+| SXGA 1280×1024 | ~150 kB | ~18 MB/h | ~1700 h |
+| VGA 640×480 | ~50 kB | ~6 MB/h | ~5000 h |
+
+Shortening the interval scales linearly: UXGA at one frame per 5s is still
+only ~180 MB/h. The practical floor is about 1–2s between UXGA frames, where
+grab plus write starts to saturate the card. If you ever want true motion
+video, drop to VGA and use [ESP32-CAM_MJPEG2SD](https://github.com/s60SC/ESP32-CAM_MJPEG2SD),
+which writes a real AVI container — don't push this frame-per-file scheme
+past a few frames per second.

@@ -43,11 +43,18 @@
 #define BATTERY_ADC_PIN 1                // GPIO1 (D0) - shared analog node: divider + button
 
 // =============================================================================
-// CAMERA CONFIGURATION - Power optimized for 6-8 hour battery life
+// CAMERA CONFIGURATION - session-only, so quality is no longer power-limited
 // =============================================================================
-#define CAMERA_FRAME_SIZE FRAMESIZE_VGA // 640x480 - optimal balance
-#define CAMERA_JPEG_QUALITY 25          // Slightly higher quality for better compression efficiency
-#define CAMERA_XCLK_FREQ 6000000        // 6MHz - reduced from 8MHz for power savings
+// The camera is initialized when a video session starts and deinitialized
+// when it stops, so its cost is confined to sessions the user asked for.
+// That, plus one frame per 30s and a recorder task that can block freely,
+// removes every reason the upstream settings were throttled:
+//   VGA/q25/6MHz  ->  ~15kB soft frames, sensor underclocked
+//   UXGA/q10/20MHz -> ~250kB detailed frames, sensor at its normal clock
+// At one frame per 30s that is ~30MB/hour: a 32GB card holds ~1000 hours.
+#define CAMERA_FRAME_SIZE FRAMESIZE_UXGA // 1600x1200
+#define CAMERA_JPEG_QUALITY 10           // 10-63, LOWER is better quality
+#define CAMERA_XCLK_FREQ 20000000        // 20MHz - OV2640's normal clock
 #define CAMERA_FB_IN_PSRAM CAMERA_FB_IN_PSRAM
 #define CAMERA_GRAB_LATEST CAMERA_GRAB_LATEST
 
@@ -136,6 +143,12 @@ typedef enum {
 #define MIC_BUS1_WS_PIN 4  // XIAO D3 - rear/lapel word select
 #define MIC_BUS1_SD_PIN 5  // XIAO D4 - rear/lapel data (C: L/R->GND, lapel D: L/R->3V3)
 
+// Phase 1 ships without the lapel pod: the connector and firmware path are
+// provisioned, the mic is not fitted. Set to 1 once the pod exists.
+#ifndef MIC_LAPEL_FITTED
+#define MIC_LAPEL_FITTED 0
+#endif
+
 #define MIC_SAMPLE_RATE 16000          // 16kHz sample rate
 #define MIC_BUFFER_SAMPLES 1600        // 100ms block (16000 * 0.1)
 #define MIC_BIT_SHIFT 14               // 32-bit slot -> int16 (24-bit data MSB-aligned; 14 = ~4x gain vs >>16)
@@ -151,6 +164,11 @@ typedef enum {
 #define MIC_SWITCH_RATIO_NUM 3     // Challenger must exceed incumbent by 3/2
 #define MIC_SWITCH_RATIO_DEN 2
 #define MIC_SWITCH_BLOCKS 3         // ...for this many consecutive 100ms blocks
+// Case mics only change over during near-silence. Switching mid-utterance
+// splices two different room responses together: a broadband click that reads
+// as a plosive, and a discontinuity that corrupts speaker embeddings. Below
+// this level nobody is talking, so a changeover costs nothing.
+#define MIC_SWITCH_SILENCE_LEVEL 60
 #define MIC_STATS_INTERVAL_MS 10000 // Periodic level log for source analysis
 
 // =============================================================================
@@ -188,7 +206,16 @@ typedef enum {
 #define SD_CS_PIN 21       // shares the net with the onboard LED: once the SD
                            // is mounted, GPIO21 must never be driven as an LED
 #define SD_SPI_FREQ_HZ 20000000
-#define VIDEO_FPS 5                // JPEG frames per second while recording
+// The recorder runs in its own task so camera grabs and SD writes - which
+// routinely stall for 100-500ms - can never block audio capture.
+#define REC_TASK_STACK_SIZE 6144
+#define REC_TASK_PRIORITY 2
+#define REC_TASK_CORE 0
+#define REC_AUDIO_STREAM_BYTES 32768 // ~1s of 16k mono PCM in flight
+// Video is a button-toggled session layered on top of always-on audio.
+// One frame per 30s matches the SenseCam evidence base for photo-cued recall
+// (~1 image / 30s) at ~1/150th the data rate and SD load of 5fps.
+#define VIDEO_FRAME_INTERVAL_MS 30000
 #define REC_ROOT "/rec"
 #define WAV_HEADER_PATCH_MS 5000   // crash-safe header refresh interval
 

@@ -220,11 +220,12 @@ void mic_process()
     uint32_t now = millis();
 
     // Lapel presence: recent signal on channel D holds the lapel active so
-    // natural pauses in speech don't bounce the source around.
-    if (bus1_valid && level[SRC_LAPEL] > MIC_LAPEL_PRESENT_LEVEL) {
+    // natural pauses in speech don't bounce the source around. Compiled out
+    // entirely when the pod isn't fitted (phase 1).
+    if (MIC_LAPEL_FITTED && bus1_valid && level[SRC_LAPEL] > MIC_LAPEL_PRESENT_LEVEL) {
         lapel_hold_until = now + MIC_LAPEL_HOLD_MS;
     }
-    bool lapel_active = bus1_valid && ((int32_t) (now - lapel_hold_until) < 0);
+    bool lapel_active = MIC_LAPEL_FITTED && bus1_valid && ((int32_t) (now - lapel_hold_until) < 0);
 
     // If bus 1 dropped out this block, the rear mic's samples are stale -
     // never emit them, and re-home the incumbent onto a bus 0 channel.
@@ -242,7 +243,16 @@ void mic_process()
             best = ch;
         }
     }
-    if (best != active_case &&
+    // Only change over during near-silence: a mid-utterance splice joins two
+    // different room responses, producing a click and a discontinuity that
+    // corrupts speaker embeddings downstream.
+    bool quiet = true;
+    for (int ch = 0; ch < n_case; ch++) {
+        if (level[ch] > MIC_SWITCH_SILENCE_LEVEL) {
+            quiet = false;
+        }
+    }
+    if (best != active_case && quiet &&
         level[best] * MIC_SWITCH_RATIO_DEN > level[active_case] * MIC_SWITCH_RATIO_NUM) {
         if (best == candidate_case) {
             candidate_streak++;

@@ -658,8 +658,16 @@ void configure_ble()
 // -------------------------------------------------------------------------
 // Camera
 // -------------------------------------------------------------------------
+bool app_camera_ready();
+
 bool take_photo()
 {
+    // The camera only exists during a video session in this build.
+    if (!app_camera_ready()) {
+        Serial.println("Photo requested but camera is powered down.");
+        return false;
+    }
+
     // Release previous buffer
     if (fb) {
         Serial.println("Releasing previous camera buffer...");
@@ -711,10 +719,20 @@ void handlePhotoControl(int8_t controlValue)
 }
 
 // -------------------------------------------------------------------------
-// configure_camera()
+// Camera lifecycle - powered only for the duration of a video session
 // -------------------------------------------------------------------------
-void configure_camera()
+static bool camera_ready = false;
+
+bool app_camera_ready()
 {
+    return camera_ready;
+}
+
+bool app_camera_start()
+{
+    if (camera_ready) {
+        return true;
+    }
     Serial.println("Initializing camera...");
     camera_config_t config = {};
     config.ledc_channel = LEDC_CHANNEL_0;
@@ -750,9 +768,25 @@ void configure_camera()
     esp_err_t err = esp_camera_init(&config);
     if (err != ESP_OK) {
         Serial.printf("Camera init failed with error 0x%x\n", err);
-    } else {
-        Serial.println("Camera initialized successfully.");
+        return false;
     }
+    camera_ready = true;
+    Serial.println("Camera initialized successfully.");
+    return true;
+}
+
+void app_camera_stop()
+{
+    if (!camera_ready) {
+        return;
+    }
+    if (fb != nullptr) {
+        esp_camera_fb_return(fb);
+        fb = nullptr;
+    }
+    esp_camera_deinit();
+    camera_ready = false;
+    Serial.println("Camera powered down.");
 }
 
 // -------------------------------------------------------------------------
@@ -785,7 +819,6 @@ void setup_app()
     lastActivity = millis();
 
     configure_ble();
-    configure_camera();
 
     // Allocate buffer for photo chunks (200 bytes + 2 for frame index)
     s_compressed_frame_2 = (uint8_t *) ps_calloc(202, sizeof(uint8_t));
@@ -795,8 +828,10 @@ void setup_app()
         Serial.println("Chunk buffer allocated successfully.");
     }
 
-    // Set default capture interval from config
-    isCapturingPhotos = true;
+    // The camera belongs to the button-toggled video session only. Streaming
+    // stills to the phone would contend for the frame buffer and burn power
+    // for something this build has no use for.
+    isCapturingPhotos = false;
     captureInterval = PHOTO_CAPTURE_INTERVAL_MS;
     lastCaptureTime = millis() - captureInterval;
     Serial.print("Default capture interval set to ");

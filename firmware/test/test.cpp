@@ -53,22 +53,38 @@ int main()
     printf("after A-loud: sample=%d\n", block_value());
     assert(block_value() == 1000);
 
-    // 2) B becomes much louder; must NOT switch before hysteresis satisfied
+    // 2) B becomes much louder, but everyone is above the silence gate:
+    // changeover must be suppressed rather than splicing mid-utterance.
     set_amp(0, 0, 100);
     set_amp(0, 1, 2000);
-    run_blocks(2); // 2 blocks < MIC_SWITCH_BLOCKS
+    run_blocks(6);
+    printf("mid-speech, B much louder: sample=%d (expect 100, no switch)\n", block_value());
     assert(block_value() == 100); // still A
-    run_blocks(2); // crosses 3-block threshold
-    printf("after B-loud x4 blocks: sample=%d\n", block_value());
-    assert(block_value() == 2000); // switched to B
 
-    // 3) Lapel plugged in and speaking -> takes over immediately
+    // 3) A quiet gap with B still ahead: now the changeover is allowed, and
+    // it still needs MIC_SWITCH_BLOCKS consecutive blocks of hysteresis.
+    set_amp(0, 0, 5);
+    set_amp(0, 1, 50);
+    run_blocks(2); // < MIC_SWITCH_BLOCKS
+    assert(block_value() == 5); // still A
+    run_blocks(2); // crosses the threshold during silence
+    printf("after quiet gap: sample=%d\n", block_value());
+    assert(block_value() == 50); // switched to B
+
+    // ...and it stays on B once speech resumes
+    set_amp(0, 0, 100);
+    set_amp(0, 1, 2000);
+    run_blocks(2);
+    assert(block_value() == 2000);
+
+#if MIC_LAPEL_FITTED
+    // 4) Lapel plugged in and speaking -> takes over immediately
     set_amp(1, 1, 900);
     run_blocks(1);
     printf("after lapel-live: sample=%d\n", block_value());
     assert(block_value() == 900);
 
-    // 4) Lapel goes silent -> hold keeps it selected ~5s, then falls back to B
+    // 5) Lapel goes silent -> hold keeps it selected ~5s, then falls back to B
     set_amp(1, 1, 0);
     run_blocks(40); // 4.0s of silence: still inside hold
     assert(block_value() == 0);
@@ -76,20 +92,34 @@ int main()
     printf("after lapel-silent 5.5s: sample=%d\n", block_value());
     assert(block_value() == 2000); // back on case mic B
 
-    // 5) Rear mic C wins when loudest
-    set_amp(0, 1, 50);
-    set_amp(1, 0, 3000);
+#else
+    // Phase 1 ships with MIC_LAPEL_FITTED 0: a live signal on the lapel slot
+    // must be ignored entirely, so a floating input cannot hijack the source.
+    set_amp(1, 1, 9000);
     run_blocks(4);
+    printf("lapel not fitted, lapel slot loud: sample=%d (expect 2000)\n", block_value());
+    assert(block_value() == 2000);
+    set_amp(1, 1, 0);
+#endif
+
+    // 6) Rear mic C wins when it leads during a quiet interval
+    set_amp(0, 0, 5);
+    set_amp(0, 1, 5);
+    set_amp(1, 0, 50);
+    run_blocks(4);
+    assert(block_value() == 50); // switched to C while quiet
+    set_amp(1, 0, 3000);         // speech resumes on C
+    run_blocks(2);
     printf("after C-loud: sample=%d\n", block_value());
     assert(block_value() == 3000);
 
-    // 6) Saturation clamps instead of wrapping
+    // 7) Saturation clamps instead of wrapping
     g_chan_amp[1][0] = INT32_MAX;
     run_blocks(4);
     printf("after saturation: sample=%d\n", block_value());
     assert(block_value() == 32767);
 
-    // 7) Bus1 install failure degrades gracefully to case pair
+    // 8) Bus1 install failure degrades gracefully to case pair
     mic_stop();
     g_bus_fail[1] = true;
     assert(mic_start());

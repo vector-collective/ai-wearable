@@ -104,6 +104,13 @@ void ui_loop(uint32_t now)
         // Only trust the divider when the switch isn't shorting the node.
         last_battery_mv = node_mv * BATTERY_DIVIDER_NUM;
     }
+    // The recorder runs asynchronously, so a session can fail to start (no
+    // card) or stop itself (card full) after the fact. Resync and report.
+    if (ui_state.recording && !sd_recorder_active() && !sd_recorder_starting()) {
+        ui_state.recording = false;
+        start_blink((ui_rgb_t){255, 0, 0}, 3, now);
+    }
+
     ui_action_t act = ui_step(&ui_state, now, pressed, UI_LONG_PRESS_MS, UI_DEBOUNCE_MS);
 
     switch (act) {
@@ -115,13 +122,13 @@ void ui_loop(uint32_t now)
     }
     case UI_ACT_REC_START: {
         app_register_activity();
-        uint16_t mv = last_battery_mv;
         if (sd_recorder_start()) {
-            // Single blink in battery color: confirms start AND shows whether
-            // the cell can carry a camera session.
-            start_blink(ui_battery_color(mv), 1, now);
+            // Single blink in battery color: confirms the request AND shows
+            // whether the cell can carry a camera session. If the session
+            // fails to come up, the resync above reports it.
+            start_blink(ui_battery_color(last_battery_mv), 1, now);
         } else {
-            ui_state.recording = false; // stay idle; no card or mount failure
+            ui_state.recording = false;
             start_blink((ui_rgb_t){255, 0, 0}, 3, now);
         }
         break;
