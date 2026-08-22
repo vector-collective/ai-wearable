@@ -126,11 +126,17 @@ heartbeat while a capture is running (below).
 
 | Context | Input | Action | LED |
 |---|---|---|---|
-| Idle | short press | battery readout | solid 2s, cool→warm = full→low, orange = swap now, red = almost dead |
+| Idle | short press | battery readout | **5 blinks** in battery color: cool→warm = full→low, orange = swap now, red = almost dead |
 | Idle | long press (1.5s, deliberate) | **start AV capture** | 1 blink in battery color |
-| Recording | short press | **stop AV capture** | 2 blinks in SD-free-space color (same spectrum) |
+| Recording | short press | **stop AV capture** | **2 blinks** in SD-free-space color (same spectrum) |
 | Recording | long press | stop AV capture | same |
 | — | SD mount fails on start | stays idle | 3 fast red blinks |
+
+A quick press does one of two things depending on state, and **the blink
+count tells you which**: five blinks means the device was idle and this is a
+battery reading; two means it was recording and the capture has just stopped.
+Both use the same cool→warm spectrum, so the count is what disambiguates
+them. Counts are `UI_BATTERY_BLINKS` and `UI_REC_STOP_BLINKS` in `config.h`.
 
 Either press stops a running capture: a held press must not be a dead
 gesture. Starting still requires the deliberate 1.5s hold, so the guarded
@@ -139,7 +145,8 @@ control is the one that begins recording, not the one that ends it.
 **Recording heartbeat.** While a capture is running the LED gives a single
 dim blink in the battery colour every 30s (`UI_REC_HEARTBEAT_MS`), so a
 session you forgot to stop is discoverable at a glance — and the colour
-tells you whether the cell will see it through. It only fires when the LED
+tells you whether the cell will see it through. This is also how you read
+the battery mid-capture, since a quick press would stop the recording. It only fires when the LED
 is otherwise idle, so it can never truncate a battery or SD readout. The dim
 fraction is `UI_REC_HEARTBEAT_NUM`/`UI_REC_HEARTBEAT_DEN` (default 1/4) of
 the already brightness-scaled colour; raise it on the bench if it is too

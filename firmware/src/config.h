@@ -207,6 +207,13 @@ typedef enum {
 // glance without the device being conspicuous. It never pre-empts a readout.
 // The dim fraction is num/den of the already-brightness-scaled colour; raise
 // UI_REC_HEARTBEAT_NUM on the bench if it is too faint through your diffuser.
+// Readout blink counts. The count distinguishes the two things a quick press
+// can do, since both use the same cool->warm colour spectrum:
+//   5 blinks = battery readout (the device was idle)
+//   2 blinks = capture stopped (the device was recording)
+#define UI_BATTERY_BLINKS 5
+#define UI_REC_STOP_BLINKS 2
+
 #define UI_REC_HEARTBEAT_MS 30000
 #define UI_REC_HEARTBEAT_NUM 1
 #define UI_REC_HEARTBEAT_DEN 4

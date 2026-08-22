@@ -12,11 +12,12 @@ static Adafruit_NeoPixel pixel(1, UI_LED_PIN, NEO_GRB + NEO_KHZ800);
 static ui_state_t ui_state = {};
 
 // Non-blocking LED pattern engine
-enum led_pattern { PAT_OFF, PAT_SOLID, PAT_BLINK };
+// Every readout is a blink count in a colour: the colour carries the value,
+// the count says which reading it is.
+enum led_pattern { PAT_OFF, PAT_BLINK };
 static led_pattern pattern = PAT_OFF;
 static ui_rgb_t pat_color;
 static uint32_t pat_start = 0;
-static uint32_t pat_solid_ms = 0;
 static int pat_blinks = 0; // number of on-phases for PAT_BLINK
 
 static void led_write(ui_rgb_t c)
@@ -29,15 +30,6 @@ static void led_off()
 {
     led_write((ui_rgb_t){0, 0, 0});
     pattern = PAT_OFF;
-}
-
-static void start_solid(ui_rgb_t c, uint32_t ms, uint32_t now)
-{
-    pat_color = c;
-    pat_solid_ms = ms;
-    pat_start = now;
-    pattern = PAT_SOLID;
-    led_write(c);
 }
 
 static void start_blink(ui_rgb_t c, int count, uint32_t now)
@@ -74,11 +66,6 @@ void ui_init()
 static void run_pattern(uint32_t now)
 {
     switch (pattern) {
-    case PAT_SOLID:
-        if (now - pat_start >= pat_solid_ms) {
-            led_off();
-        }
-        break;
     case PAT_BLINK: {
         // 350ms on / 350ms off per blink. The main loop only samples this a
         // few times a second (mic block + SD writes), so a faster cadence
@@ -118,7 +105,7 @@ void ui_loop(uint32_t now)
     case UI_ACT_BATTERY_CHECK: {
         app_register_activity();
         Serial.printf("UI: battery %umV\n", last_battery_mv);
-        start_solid(ui_battery_color(last_battery_mv), 2000, now);
+        start_blink(ui_battery_color(last_battery_mv), UI_BATTERY_BLINKS, now);
         break;
     }
     case UI_ACT_REC_START: {
@@ -138,7 +125,7 @@ void ui_loop(uint32_t now)
         uint8_t free_pct = sd_recorder_free_pct();
         sd_recorder_stop();
         Serial.printf("UI: rec stop, SD %u%% free\n", free_pct);
-        start_blink(ui_disk_color(free_pct), 2, now);
+        start_blink(ui_disk_color(free_pct), UI_REC_STOP_BLINKS, now);
         break;
     }
     default:
