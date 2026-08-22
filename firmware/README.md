@@ -14,13 +14,14 @@ be joined afterwards.
 
 - **Microphones**: PDM capture (the Sense board's onboard mic) replaced with
   two standard-mode I2S buses, stereo, 32-bit slots, for up to four
-  INMP441s. Per 100ms block the firmware measures each channel and emits one
-  as mono into the unchanged Opus/BLE pipeline. Changeover happens only
-  during near-silence — switching mid-utterance splices two different room
-  responses together, which clicks and degrades speaker attribution
-  downstream. A lapel pod, when fitted, wins while it carries signal.
+  INMP441s (phase 1 fits three; see below). Per 100ms block the firmware
+  measures each channel and emits one as mono into the unchanged Opus/BLE
+  pipeline. Changeover happens only during near-silence — switching
+  mid-utterance splices two different room responses together, which clicks
+  and degrades speaker attribution downstream. A lapel pod, when fitted,
+  wins while it carries signal.
 - **Case UI** (`ui.cpp`, `ui_logic.h`): button + WS2812 RGB LED state
-  machine for the battery gauge and video session control.
+  machine for the battery readout and AV capture control.
 - **Recorder** (`sd_recorder.cpp`, `recorder_util.h`): a FreeRTOS task that
   owns the camera and SD card. Camera grabs and card writes routinely stall
   for 100–500ms, so keeping them off the audio path is what allows
@@ -29,8 +30,8 @@ be joined afterwards.
   stop. Streaming stills to the phone is disabled — this build has no use
   for them and they contended for the frame buffer.
 - **Selection logging** over USB serial: every source change, plus a levels
-  line every 10s (`MIC: levels A=.. B=.. C=.. D=..`) — bring-up instrument
-  and the data for deciding how much each mic actually earns its keep.
+  line every 10s (`MIC: levels A=.. B=.. C=..`) — bring-up instrument and
+  the data for deciding how much each mic actually earns its keep.
 
 Everything is host-testable: `./test/run.sh` compiles the real `mic.cpp`
 against stub drivers with plain g++, no ESP toolchain needed, and runs the
@@ -120,22 +121,24 @@ SD card *only* while a video session is running, so the two can be joined
 afterwards. Outside a video session, audio exists solely as the live
 transcription stream.
 
+**The LED is off at all times except while showing a readout.**
+
 | Context | Input | Action | LED |
 |---|---|---|---|
-| Idle | short press | battery check | solid 2s, cool→warm = full→low, red = almost dead, orange = swap now |
-| Idle | long press (1.5s, deliberate) | **start video session** | 1 blink in battery color |
-| Video running | short press | bookmark + segment split | 1 cyan blink |
-| Video running | long press | stop video session | 2 blinks in SD-free-space color (same spectrum) |
+| Idle | short press | battery readout | solid 2s, cool→warm = full→low, orange = swap now, red = almost dead |
+| Idle | long press (1.5s, deliberate) | **start AV capture** | 1 blink in battery color |
+| Recording | short press | **stop AV capture** | 2 blinks in SD-free-space color (same spectrum) |
+| Recording | long press | stop AV capture | same |
 | — | SD mount fails on start | stays idle | 3 fast red blinks |
 
-A video session writes to the Sense microSD:
-`/rec/S0001/seg01/f000000.jpg…` (one frame per `VIDEO_FRAME_INTERVAL_MS`,
-default 30s) + `audio.wav` (mono 16k) per segment, and `bookmarks.csv`
-(`wav_sample, millis, segment, frame`). The sample offset is authoritative —
-`millis()` and the WAV timeline diverge whenever a block is dropped. Each
-bookmark closes the current segment and opens the next, so bookmarks are
-also clean file boundaries. WAV headers are re-patched every 5s, so a crash
-still leaves playable audio.
+Either press stops a running capture: a held press must not be a dead
+gesture. Starting still requires the deliberate 1.5s hold, so the guarded
+control is the one that begins recording, not the one that ends it.
+
+A session writes to the Sense microSD: `/rec/S0001/seg01/f000000.jpg…` (one
+frame per `VIDEO_FRAME_INTERVAL_MS`, default 30s) plus `audio.wav` (mono
+16k). WAV headers are re-patched every 5s, so a crash still leaves playable
+audio, and dropped audio bytes are counted and reported at session end.
 
 One frame per 30s is deliberate, not a limitation: it matches the SenseCam
 evidence base for photo-cued recall while costing ~1/150th the SD and CPU
@@ -160,16 +163,25 @@ puts the firmware at roughly 46% of its partition.
 
 Watch the `Flash: [====]` line in the CI build output when adding features.
 
-## Phase 1 vs later
+## Phase 1: three case mics, no lapel
 
-Phase 1 builds **without the lapel pod** — the connector, wiring and firmware
-path are provisioned, the mic is not fitted. `MIC_LAPEL_FITTED 0` in
-`config.h` compiles out the lapel detection so a floating input can't be
-mistaken for a live pod; set it to `1` when you build the pod.
+Phase 1 builds **without the lapel pod**. The connector, wiring and firmware
+path are provisioned; the microphone is not fitted. `MIC_LAPEL_FITTED 0` in
+`config.h` means the lapel slot is never sampled, never scored and never
+selectable — an unconnected or noisy input cannot influence the source
+choice however loud it reads — and the serial logs print only the three real
+channels. Set it to `1` when the pod exists; nothing else changes.
 
-Note that fitting the lapel is the single largest available improvement to
-transcript quality — roughly 10–20 dB of SNR against the case mics, more than
-every other change in this firmware combined.
+That leaves three microphones, all in the case: **A** front-up, **B**
+out-up, **C** rear. They still share bus 1 with the lapel's reserved slot,
+so no wiring changes when the pod arrives.
+
+Honest note on what this costs: fitting the lapel later is the single
+largest available improvement to transcript quality — roughly 10–20 dB of
+SNR against hip-mounted case mics, more than every firmware change here
+combined. Phase 1 is expected to transcribe acceptably at conversational
+distance in a quiet room, which is the stated use, and to degrade in noise
+or across a large room in a way the lapel would fix.
 
 **GPIO21 caveat:** the SD's chip select shares the net with the onboard
 orange LED. Once the SD has been mounted, the firmware stops driving the

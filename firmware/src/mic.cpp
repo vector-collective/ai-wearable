@@ -213,9 +213,11 @@ void mic_process()
         acc[SRC_CASE_B] += (b < 0) ? -b : b;
         if (bus1_valid) {
             int16_t c = slot_to_s16(bus1_buffer[2 * i + (MIC_BUS1_SWAP_LR ? 1 : 0)]);
-            int16_t d = slot_to_s16(bus1_buffer[2 * i + (MIC_BUS1_SWAP_LR ? 0 : 1)]);
             acc[SRC_CASE_C] += (c < 0) ? -c : c;
+#if MIC_LAPEL_FITTED
+            int16_t d = slot_to_s16(bus1_buffer[2 * i + (MIC_BUS1_SWAP_LR ? 0 : 1)]);
             acc[SRC_LAPEL] += (d < 0) ? -d : d;
+#endif
         }
     }
     uint32_t level[4];
@@ -225,13 +227,18 @@ void mic_process()
 
     uint32_t now = millis();
 
+#if MIC_LAPEL_FITTED
     // Lapel presence: recent signal on channel D holds the lapel active so
-    // natural pauses in speech don't bounce the source around. Compiled out
-    // entirely when the pod isn't fitted (phase 1).
-    if (MIC_LAPEL_FITTED && bus1_valid && level[SRC_LAPEL] > MIC_LAPEL_PRESENT_LEVEL) {
+    // natural pauses in speech don't bounce the source around.
+    if (bus1_valid && level[SRC_LAPEL] > MIC_LAPEL_PRESENT_LEVEL) {
         lapel_hold_until = now + MIC_LAPEL_HOLD_MS;
     }
-    bool lapel_active = MIC_LAPEL_FITTED && bus1_valid && ((int32_t) (now - lapel_hold_until) < 0);
+    bool lapel_active = bus1_valid && ((int32_t) (now - lapel_hold_until) < 0);
+#else
+    // Pod not fitted: the lapel slot is never sampled, scored, or selected, so
+    // an unconnected input cannot influence anything.
+    const bool lapel_active = false;
+#endif
 
     // If bus 1 dropped out this block, the rear mic's samples are stale -
     // never emit them, and re-home the incumbent onto a bus 0 channel.
@@ -277,13 +284,21 @@ void mic_process()
     int source = lapel_active ? SRC_LAPEL : active_case;
 
     if (source != last_logged_source) {
+#if MIC_LAPEL_FITTED
         Serial.printf("MIC: source -> %s (levels A=%u B=%u C=%u D=%u)\n", SRC_NAMES[source], level[0], level[1],
                       level[2], level[3]);
+#else
+        Serial.printf("MIC: source -> %s (levels A=%u B=%u C=%u)\n", SRC_NAMES[source], level[0], level[1], level[2]);
+#endif
         last_logged_source = source;
     }
     if (now - last_stats_ms >= MIC_STATS_INTERVAL_MS) {
+#if MIC_LAPEL_FITTED
         Serial.printf("MIC: levels A=%u B=%u C=%u D=%u active=%s lapel=%s\n", level[0], level[1], level[2], level[3],
                       SRC_NAMES[source], lapel_active ? "yes" : "no");
+#else
+        Serial.printf("MIC: levels A=%u B=%u C=%u active=%s\n", level[0], level[1], level[2], SRC_NAMES[source]);
+#endif
         last_stats_ms = now;
     }
 

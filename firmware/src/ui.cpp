@@ -133,10 +133,6 @@ void ui_loop(uint32_t now)
         }
         break;
     }
-    case UI_ACT_REC_BOOKMARK:
-        sd_recorder_bookmark();
-        start_blink((ui_rgb_t){0, 200, 180}, 1, now);
-        break;
     case UI_ACT_REC_STOP: {
         uint8_t free_pct = sd_recorder_free_pct();
         sd_recorder_stop();

@@ -93,8 +93,9 @@ int main()
     assert(block_value() == 2000); // back on case mic B
 
 #else
-    // Phase 1 ships with MIC_LAPEL_FITTED 0: a live signal on the lapel slot
-    // must be ignored entirely, so a floating input cannot hijack the source.
+    // Phase 1 ships with MIC_LAPEL_FITTED 0: the lapel slot is never sampled
+    // or scored, so an unconnected (or noisy) input cannot hijack the source
+    // no matter how loud it reads.
     set_amp(1, 1, 9000);
     run_blocks(4);
     printf("lapel not fitted, lapel slot loud: sample=%d (expect 2000)\n", block_value());

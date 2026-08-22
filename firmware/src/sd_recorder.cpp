@@ -18,7 +18,7 @@
 // in loop_app(). Audio capture therefore never waits on storage, which is what
 // lets the camera run at full resolution and quality.
 
-enum rec_cmd { CMD_START = 1, CMD_STOP, CMD_BOOKMARK };
+enum rec_cmd { CMD_START = 1, CMD_STOP };
 
 static StreamBufferHandle_t audio_stream = nullptr;
 static QueueHandle_t cmd_queue = nullptr;
@@ -111,13 +111,6 @@ static bool session_start()
     if (!open_segment()) {
         return false;
     }
-    char path[48];
-    snprintf(path, sizeof(path), "%s/bookmarks.csv", session_dir);
-    File bm = SD.open(path, FILE_WRITE);
-    if (bm) {
-        bm.println("wav_sample,millis,segment,frame");
-        bm.close();
-    }
     if (!app_camera_start()) {
         Serial.println("REC: camera failed to start, audio-only session");
     }
@@ -136,29 +129,6 @@ static void session_stop()
     cached_free_pct = disk_free_pct(SD.totalBytes(), SD.usedBytes());
     Serial.printf("REC: stopped %s (%u segments, %u audio bytes dropped)\n", session_dir, seg_idx,
                   (unsigned) audio_dropped_bytes);
-}
-
-static void session_bookmark()
-{
-    char path[48];
-    snprintf(path, sizeof(path), "%s/bookmarks.csv", session_dir);
-    File bm = SD.open(path, FILE_APPEND);
-    if (bm) {
-        // Sample offset is authoritative: millis() and the WAV timeline
-        // diverge whenever a block is dropped.
-        bm.printf("%lu,%lu,%u,%u\n", (unsigned long) (wav_data_bytes / sizeof(int16_t)), (unsigned long) millis(),
-                  seg_idx, frame_idx);
-        bm.close();
-    }
-    finalize_wav();
-    seg_idx++;
-    if (!open_segment()) {
-        Serial.println("REC: segment roll failed, stopping");
-        recording = false;
-        session_stop();
-        return;
-    }
-    Serial.printf("REC: bookmark -> %s\n", seg_dir);
 }
 
 static void drain_audio()
@@ -193,12 +163,6 @@ static void rec_task_fn(void *)
                     recording = false;
                     drain_audio(); // flush what's still in flight
                     session_stop();
-                }
-                break;
-            case CMD_BOOKMARK:
-                if (recording) {
-                    drain_audio();
-                    session_bookmark();
                 }
                 break;
             }
@@ -294,15 +258,6 @@ void sd_recorder_stop()
         return;
     }
     uint8_t cmd = CMD_STOP;
-    xQueueSend(cmd_queue, &cmd, 0);
-}
-
-void sd_recorder_bookmark()
-{
-    if (cmd_queue == nullptr || !recording) {
-        return;
-    }
-    uint8_t cmd = CMD_BOOKMARK;
     xQueueSend(cmd_queue, &cmd, 0);
 }
 

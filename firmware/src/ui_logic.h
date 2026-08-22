@@ -4,12 +4,14 @@
 
 #include <stdint.h>
 
+// Idle:      short press -> battery readout, long press -> start AV capture.
+// Recording: either press stops it. A held press must not be a dead gesture,
+// so long-press-while-recording stops too rather than doing nothing.
 typedef enum {
     UI_ACT_NONE = 0,
     UI_ACT_BATTERY_CHECK, // idle: short press
     UI_ACT_REC_START,     // idle: long press (fires at threshold, while held)
-    UI_ACT_REC_BOOKMARK,  // recording: short press
-    UI_ACT_REC_STOP,      // recording: long press
+    UI_ACT_REC_STOP,      // recording: either press
 } ui_action_t;
 
 typedef struct {
@@ -51,7 +53,11 @@ static inline ui_action_t ui_step(ui_state_t *s, uint32_t now, bool pressed, uin
         s->down = false;
         s->last_edge_ms = now;
         if (!s->long_fired) {
-            return s->recording ? UI_ACT_REC_BOOKMARK : UI_ACT_BATTERY_CHECK;
+            if (s->recording) {
+                s->recording = false;
+                return UI_ACT_REC_STOP;
+            }
+            return UI_ACT_BATTERY_CHECK;
         }
         s->long_fired = false;
     }

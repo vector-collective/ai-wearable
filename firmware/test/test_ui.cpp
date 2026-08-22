@@ -34,12 +34,20 @@ int main()
     assert(step(false, 100) == UI_ACT_NONE);  // release after long: no short action
     printf("long press -> rec start OK\n");
 
-    // Recording short press -> bookmark
+    // Recording short press -> stop
     assert(step(true, 300) == UI_ACT_NONE);
-    assert(step(false, 100) == UI_ACT_REC_BOOKMARK);
-    printf("recording short press -> bookmark OK\n");
+    assert(step(false, 100) == UI_ACT_REC_STOP);
+    printf("recording short press -> stop OK\n");
 
-    // Recording long press -> stop
+    // Back to idle: a short press is a battery check again, not a stop
+    assert(step(true, 300) == UI_ACT_NONE);
+    assert(step(false, 100) == UI_ACT_BATTERY_CHECK);
+    printf("after stop, short press -> battery check OK\n");
+
+    // Recording long press also stops - a held press must not be a dead gesture
+    assert(step(true, 500) == UI_ACT_NONE);
+    assert(step(true, 800) == UI_ACT_REC_START);
+    assert(step(false, 100) == UI_ACT_NONE);
     assert(step(true, 300) == UI_ACT_NONE);
     assert(step(true, 800) == UI_ACT_REC_STOP);
     assert(step(false, 100) == UI_ACT_NONE);
