@@ -22,12 +22,19 @@ touching only `src/mic.cpp` and `src/config.h`):
   line every 10s (`MIC: levels A=.. B=.. C=.. D=..`) — this is the data for
   deciding how often the lapel actually earns its keep.
 
-## Wiring (final — all 11 header pins allocated)
+## Wiring (all 11 header pins allocated)
+
+> **Do not use the Seeed "Expansion Board Base for XIAO."** It is not a passive
+> battery holder: per [Seeed's docs](https://wiki.seeedstudio.com/Seeeduino-XIAO-Expansion-Board/)
+> it hardwires a buzzer to A3, a user button to D1, an OLED/RTC I2C bus to
+> D4/D5 and its own microSD chip-select to D2 — colliding with the LED node
+> and all of mic bus 1. Solder the battery to the XIAO's own **B+/B− pads**
+> instead; the XIAO ESP32S3 has onboard lithium charge management.
 
 | Pin | GPIO | Function |
 |---|---|---|
-| D0  | 1  | Case button (momentary, to GND) |
-| D1  | 2  | **Dual use**: WS2812 LED data-in + battery divider node |
+| D0  | 1  | **Analog node**: battery divider + case button (see below) |
+| D1  | 2  | WS2812 LED data-in (only) |
 | D2  | 3  | Bus 1 SCK (rear mic C + lapel D) |
 | D3  | 4  | Bus 1 WS |
 | D4  | 5  | Bus 1 SD |
@@ -42,12 +49,50 @@ Per-mic L/R select: **A** (front-up) and **C** (rear) tie L/R → GND;
 **B** (out-up) and lapel **D** tie L/R → 3V3. The lapel connector carries
 bus 1's SCK/WS/SD plus 3V3/GND (5 pins).
 
-**Battery divider** (enables the LED battery gauge): BAT+ —[100kΩ]— D1 node
-—[100kΩ]— GND. The WS2812's DIN connects to the same D1 node; power the
-WS2812 from the battery rail (3.5–4.2V is in spec), GND common.
+**Battery + button share one analog node (D0/GPIO1).** Both functions are
+high-impedance analog, so unlike the earlier LED/ADC arrangement they don't
+conflict:
 
-**Power off** is the expansion base's physical battery switch — the old
-2s-hold firmware power-off is gone; long press now belongs to recording.
+```
+BAT+ --[100k]--+-- GPIO1
+               |
+              [100k]      <- momentary switch wired ACROSS this resistor
+               |
+              GND         plus 100nF from GPIO1 to GND
+```
+
+Released, the node sits at VBAT/2 (battery reading). Pressed, it's pulled to
+~0V. One ADC read serves both. The 100nF settles the ADC sample-and-hold
+*and* debounces the switch for free.
+
+**Power the WS2812 from the 3V3 rail, not the battery rail.** WS2812B needs
+V_IH ≥ 0.7·VDD; on a 4.2V pack that's 2.94V, which a 3.3V GPIO cannot
+guarantee (ESP32-S3 worst-case V_OH is 2.64V). At 3.3V VDD the threshold
+drops to 2.31V with comfortable margin, and it stops moving as the pack
+drains. Slightly dimmer, reliably correct.
+
+**Power off** is the inline battery switch — the old 2s-hold firmware
+power-off is gone; long press belongs to recording.
+
+### Passive components (all cheap, all worth fitting)
+
+| Where | Part | Why |
+|---|---|---|
+| GPIO1 → GND | 100nF | ADC settling + button debounce |
+| GPIO2 → WS2812 DIN | 330–470Ω series at the MCU | Edge damping, ESD limiting |
+| WS2812 DIN → GND | 10kΩ | Defined level before `ui_init()` runs |
+| WS2812 VDD/GND | 100nF + 10µF | Local decoupling |
+| Bus SCK/WS at MCU | 68–100Ω series each | Series termination; also call `gpio_set_drive_capability(..., GPIO_DRIVE_CAP_0)` |
+| Each mic's SD output | 100Ω series | Limits hot-plug contention on the shared data line |
+| GPIO5 → GND | 10kΩ | External pull-down; the internal ~45kΩ is weak for 50cm of cable |
+| Lapel pod | 100nF + 10µF, 10Ω in series with its 3V3 | Decoupling + inrush damping at the far end |
+| BAT+ | P-channel MOSFET (DMG2301L class) | Reverse-polarity protection — JST wire colors are not standardized |
+| Battery rail | 10µF | Bulk |
+| Lapel connector | 4-ch TVS array (SRV05-4 class) | Exposed pins on a worn device get touched |
+
+Lapel cable: 28 AWG stranded, shielded or twisted pairs, shield grounded at
+the XIAO end only. Order the connector **3V3 / SCK / GND / SD / WS** so the
+ground sits between clock and data.
 
 ## Case controls (button + RGB LED)
 

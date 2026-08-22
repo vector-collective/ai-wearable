@@ -29,7 +29,7 @@
 #define DEEP_SLEEP_THRESHOLD_MS 300000 // 5 minutes of inactivity triggers deep sleep
 #define IDLE_THRESHOLD_MS 45000        // 45 seconds to enter power save mode (was 30s)
 
-// Battery Configuration - Dual 250mAh @ 3.5V-4.1V under load (500mAh total)
+// Battery Configuration - single EEMB 1100mAh cell, swappable
 #define BATTERY_MAX_VOLTAGE 4.2f      // 4.2V fully charged (under load)
 #define BATTERY_MIN_VOLTAGE 3.2f      // 3.2V empty (under load)
 #define BATTERY_CRITICAL_VOLTAGE 3.3f // Emergency shutdown voltage
@@ -40,7 +40,7 @@
 // Battery Monitoring - Extended intervals for power savings
 #define BATTERY_REPORT_INTERVAL_MS 90000 // 1.5 minute reporting (was 60s)
 #define BATTERY_TASK_INTERVAL_MS 20000   // 20 second internal checks (was 15s)
-#define BATTERY_ADC_PIN 2                // GPIO2 (A1) - voltage divider connection
+#define BATTERY_ADC_PIN 1                // GPIO1 (D0) - shared analog node: divider + button
 
 // =============================================================================
 // CAMERA CONFIGURATION - Power optimized for 6-8 hour battery life
@@ -156,14 +156,28 @@ typedef enum {
 // =============================================================================
 // CASE UI - button + WS2812 RGB LED (shared pin with battery divider)
 // =============================================================================
-// The WS2812 data-in and the battery voltage divider share GPIO2 (D1): the pin
-// is read as ADC just before each LED update, then driven as digital output.
-// Divider: BAT+ --[100k]-- GPIO2 --[100k]-- GND (ratio 2:1).
-#define UI_LED_PIN 2           // XIAO D1 - WS2812 DIN + battery ADC node
+// GPIO2 (D1) drives the WS2812 data line and nothing else. An earlier revision
+// shared it with the battery divider; that is electrically unsound - with the
+// pad in ADC mode the divider holds the LED's data input at VBAT/2, squarely
+// inside its forbidden band (0.3*VDD .. 0.7*VDD), so the latched colour is
+// undefined. Power the LED from the regulated 3V3 rail, NOT the battery rail:
+// WS2812B needs VIH >= 0.7*VDD, which a 3.3V GPIO cannot guarantee against a
+// 4.2V supply.
+#define UI_LED_PIN 2           // XIAO D1 - WS2812 DIN only
 #define UI_LED_BRIGHTNESS 40   // 0-255; keep modest for current and glare
 #define UI_LONG_PRESS_MS 1500  // deliberate hold: recording is a guarded, rarely-used control
 #define UI_DEBOUNCE_MS 50
-#define BATTERY_DIVIDER_NUM 2  // (Rtop+Rbot)/Rbot with 100k/100k
+
+// Button and battery gauge share GPIO1 (D0) as a single ANALOG node. Both
+// functions are high-impedance analog, so unlike the old GPIO2 arrangement
+// they do not conflict:
+//   BAT+ --[100k]-- GPIO1 --[100k]-- GND,  momentary switch across the lower
+//   100k, and 100nF from GPIO1 to GND.
+// Released -> VBAT/2 (~1.6-2.1V) = battery reading. Pressed -> ~0V.
+// The 100nF both settles the ADC sample-and-hold and debounces the switch.
+#define BATTERY_DIVIDER_NUM 2      // (Rtop+Rbot)/Rbot with 100k/100k
+#define UI_BUTTON_PRESSED_MV 400   // node below this = pressed (floor is ~0V)
+#define UI_BATTERY_VALID_MV 1200   // node above this = a trustworthy battery sample
 
 // =============================================================================
 // SD RECORDER - Sense microSD slot (pins are hardwired on the daughterboard)
@@ -259,7 +273,7 @@ typedef enum {
 #define PCLK_GPIO_NUM 13
 
 // Power Button and LED Control
-#define POWER_BUTTON_PIN 1 // Custom button (GPIO1/A0) - power on/off
+#define POWER_BUTTON_PIN 1 // GPIO1 (D0) - case button, read as ADC (see CASE UI)
 #define STATUS_LED_PIN 21  // User LED (GPIO21) - status indicator
 #endif
 

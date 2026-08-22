@@ -19,12 +19,8 @@ static uint32_t pat_start = 0;
 static uint32_t pat_solid_ms = 0;
 static int pat_blinks = 0; // number of on-phases for PAT_BLINK
 
-// The LED data pin doubles as the battery-divider ADC input. analogRead
-// reconfigures the pad, so force it back to a digital output before every
-// NeoPixel update.
 static void led_write(ui_rgb_t c)
 {
-    pinMode(UI_LED_PIN, OUTPUT);
     pixel.setPixelColor(0, pixel.Color(c.r, c.g, c.b));
     pixel.show();
 }
@@ -52,18 +48,23 @@ static void start_blink(ui_rgb_t c, int count, uint32_t now)
     pattern = PAT_BLINK;
 }
 
-static uint16_t battery_read_mv()
+// Raw millivolts at the shared analog node (GPIO1). Pressed pulls it to ~0V;
+// released it sits at VBAT/2. One read serves both the button and the gauge.
+static uint16_t node_read_mv()
 {
     uint32_t acc = 0;
     for (int i = 0; i < 8; i++) {
         acc += analogReadMilliVolts(BATTERY_ADC_PIN);
     }
-    return (uint16_t) ((acc / 8) * BATTERY_DIVIDER_NUM);
+    return (uint16_t) (acc / 8);
 }
+
+static uint16_t last_battery_mv = 0;
 
 void ui_init()
 {
-    pinMode(POWER_BUTTON_PIN, INPUT_PULLUP);
+    // GPIO1 is an analog node (divider + button), not a digital input.
+    analogSetPinAttenuation(BATTERY_ADC_PIN, ADC_11db);
     pixel.begin();
     pixel.setBrightness(UI_LED_BRIGHTNESS);
     led_off();
@@ -97,20 +98,24 @@ static void run_pattern(uint32_t now)
 
 void ui_loop(uint32_t now)
 {
-    bool pressed = !digitalRead(POWER_BUTTON_PIN); // active low
+    uint16_t node_mv = node_read_mv();
+    bool pressed = node_mv < UI_BUTTON_PRESSED_MV;
+    if (node_mv >= UI_BATTERY_VALID_MV) {
+        // Only trust the divider when the switch isn't shorting the node.
+        last_battery_mv = node_mv * BATTERY_DIVIDER_NUM;
+    }
     ui_action_t act = ui_step(&ui_state, now, pressed, UI_LONG_PRESS_MS, UI_DEBOUNCE_MS);
 
     switch (act) {
     case UI_ACT_BATTERY_CHECK: {
         app_register_activity();
-        uint16_t mv = battery_read_mv();
-        Serial.printf("UI: battery %umV\n", mv);
-        start_solid(ui_battery_color(mv), 2000, now);
+        Serial.printf("UI: battery %umV\n", last_battery_mv);
+        start_solid(ui_battery_color(last_battery_mv), 2000, now);
         break;
     }
     case UI_ACT_REC_START: {
         app_register_activity();
-        uint16_t mv = battery_read_mv();
+        uint16_t mv = last_battery_mv;
         if (sd_recorder_start()) {
             // Single blink in battery color: confirms start AND shows whether
             // the cell can carry a camera session.

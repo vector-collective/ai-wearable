@@ -34,9 +34,7 @@ unsigned long lastBatteryCheck = 0;
 bool deviceActive = true;
 device_state_t deviceState = DEVICE_BOOTING;
 
-// Button and LED state
-volatile bool buttonPressed = false;
-unsigned long buttonPressTime = 0;
+// LED state (the case button lives in ui.cpp on an analog node)
 led_status_t ledMode = LED_BOOT_SEQUENCE;
 
 // Gentle power optimization
@@ -111,8 +109,6 @@ image_orientation_t current_photo_orientation = ORIENTATION_0_DEGREES;
 void handlePhotoControl(int8_t controlValue);
 void readBatteryLevel();
 void updateBatteryService();
-void IRAM_ATTR buttonISR();
-void handleButton();
 void updateLED();
 void blinkLED(int count, int delayMs);
 void enterPowerSave();
@@ -125,14 +121,6 @@ void onMicData(int16_t *data, size_t samples);
 void onOpusEncoded(uint8_t *data, size_t len);
 void processAudioTx();
 void broadcastAudioPacket(uint8_t *data, size_t len);
-
-// -------------------------------------------------------------------------
-// Button ISR
-// -------------------------------------------------------------------------
-void IRAM_ATTR buttonISR()
-{
-    buttonPressed = true;
-}
 
 // -------------------------------------------------------------------------
 // LED Functions
@@ -196,55 +184,6 @@ void blinkLED(int count, int delayMs)
         statusLedWrite( LOW);
         delay(delayMs);
     }
-}
-
-// -------------------------------------------------------------------------
-// Button Handling
-// -------------------------------------------------------------------------
-void handleButton()
-{
-    unsigned long now = millis();
-    static unsigned long lastDebounceTime = 0;
-    static bool buttonDown = false;
-    static bool longPressTriggered = false;
-
-    bool currentButtonState = !digitalRead(POWER_BUTTON_PIN); // Active low (pressed = true)
-
-    if (currentButtonState && !buttonDown) {
-        // Button just pressed - debounce
-        if (now - lastDebounceTime < 50) {
-            return;
-        }
-        buttonPressTime = now;
-        buttonDown = true;
-        longPressTriggered = false;
-        lastDebounceTime = now;
-
-    } else if (currentButtonState && buttonDown && !longPressTriggered) {
-        // Long presses are owned by the case UI (ui.cpp): record start/stop.
-        // Power-off is the expansion base's physical battery switch.
-
-    } else if (!currentButtonState && buttonDown) {
-        // Button just released - debounce
-        if (now - lastDebounceTime < 50) {
-            return;
-        }
-        buttonDown = false;
-        unsigned long pressDuration = now - buttonPressTime;
-        lastDebounceTime = now;
-
-        // Only handle short press if long press wasn't already triggered
-        if (!longPressTriggered && pressDuration >= 50) {
-            // Short press - register activity
-            lastActivity = now;
-            if (powerSaveMode) {
-                exitPowerSave();
-            }
-        }
-        longPressTriggered = false;
-    }
-
-    buttonPressed = false;
 }
 
 // -------------------------------------------------------------------------
@@ -538,12 +477,14 @@ void readBatteryLevel()
     for (int i = 0; i < 10; i++) {
         mvSum += analogReadMilliVolts(BATTERY_ADC_PIN);
     }
-    batteryVoltage = (mvSum / 10) * BATTERY_DIVIDER_NUM / 1000.0f;
+    uint32_t nodeMv = mvSum / 10;
 
-    // GPIO2 is shared with the WS2812 data line: never leave it in analog mode,
-    // or the divider holds it at an indeterminate level for the LED.
-    pinMode(BATTERY_ADC_PIN, OUTPUT);
-    digitalWrite(BATTERY_ADC_PIN, LOW);
+    // The button shares this analog node and shorts it to ground when held.
+    // Keep the previous reading rather than reporting a dead battery.
+    if (nodeMv < UI_BATTERY_VALID_MV) {
+        return;
+    }
+    batteryVoltage = nodeMv * BATTERY_DIVIDER_NUM / 1000.0f;
 
     // Clamp voltage to reasonable range
     if (batteryVoltage > 5.0f)
@@ -826,15 +767,12 @@ void setup_app()
     Serial.begin(921600);
     Serial.println("Setup started...");
 
-    // Initialize GPIO
-    pinMode(POWER_BUTTON_PIN, INPUT_PULLUP);
+    // GPIO1 is not configured here: it is an analog node (battery divider +
+    // button) owned by ui.cpp.
     pinMode(STATUS_LED_PIN, OUTPUT);
 
     // LED uses inverted logic: HIGH = OFF, LOW = ON
     statusLedWrite( HIGH);
-
-    // Setup button interrupt
-    attachInterrupt(digitalPinToInterrupt(POWER_BUTTON_PIN), buttonISR, CHANGE);
 
     // Start LED boot sequence
     ledMode = LED_BOOT_SEQUENCE;
@@ -895,9 +833,6 @@ void setup_app()
 void loop_app()
 {
     unsigned long now = millis();
-
-    // Handle button presses
-    handleButton();
 
     // Case UI state machine (battery check / record / bookmark / stop)
     ui_loop(now);
