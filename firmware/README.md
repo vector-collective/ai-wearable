@@ -54,7 +54,7 @@ WS2812 from the battery rail (3.5–4.2V is in spec), GND common.
 | Context | Input | Action | LED |
 |---|---|---|---|
 | Idle | short press | battery check | solid 2s, cool→warm = full→low, red = almost dead, orange = swap now |
-| Idle | long press (700ms) | start recording | 1 blink in battery color |
+| Idle | long press (1.5s, deliberate) | start recording | 1 blink in battery color |
 | Recording | short press | bookmark + segment split | 1 cyan blink |
 | Recording | long press | stop recording | 2 blinks in SD-free-space color (same spectrum) |
 | — | SD mount fails on start | stays idle | 3 fast red blinks |

@@ -160,7 +160,7 @@ typedef enum {
 // Divider: BAT+ --[100k]-- GPIO2 --[100k]-- GND (ratio 2:1).
 #define UI_LED_PIN 2           // XIAO D1 - WS2812 DIN + battery ADC node
 #define UI_LED_BRIGHTNESS 40   // 0-255; keep modest for current and glare
-#define UI_LONG_PRESS_MS 700   // press >= this = long press
+#define UI_LONG_PRESS_MS 1500  // deliberate hold: recording is a guarded, rarely-used control
 #define UI_DEBOUNCE_MS 50
 #define BATTERY_DIVIDER_NUM 2  // (Rtop+Rbot)/Rbot with 100k/100k
 
