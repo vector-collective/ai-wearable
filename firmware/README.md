@@ -150,6 +150,16 @@ ffmpeg -framerate 1/30 -i seg01/f%06d.jpg -i seg01/audio.wav \
   -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest seg01.mp4
 ```
 
+## Flash budget
+
+The board has 8MB of flash. Upstream's partition table allocated only the
+first 4MB, capping each OTA slot at 1.75MB — which this build filled to
+95.5%, leaving 83kB of headroom and no room to grow. `partitions_ota.csv`
+now spans the whole chip: 3.625MB per OTA slot plus 704kB of SPIFFS, which
+puts the firmware at roughly 46% of its partition.
+
+Watch the `Flash: [====]` line in the CI build output when adding features.
+
 ## Phase 1 vs later
 
 Phase 1 builds **without the lapel pod** — the connector, wiring and firmware
