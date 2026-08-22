@@ -34,7 +34,8 @@
 #define BATTERY_MIN_VOLTAGE 3.2f      // 3.2V empty (under load)
 #define BATTERY_CRITICAL_VOLTAGE 3.3f // Emergency shutdown voltage
 #define BATTERY_LOW_VOLTAGE 3.4f      // Low battery warning
-#define VOLTAGE_DIVIDER_RATIO 6.086f  // Calibrated to match multimeter readings (load-compensated)
+// (removed: upstream omiGlass divider ratio. This build reads the battery via
+// analogReadMilliVolts * BATTERY_DIVIDER_NUM - see the CASE UI section.)
 
 // Battery Monitoring - Extended intervals for power savings
 #define BATTERY_REPORT_INTERVAL_MS 90000 // 1.5 minute reporting (was 60s)

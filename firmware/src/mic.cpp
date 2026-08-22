@@ -51,7 +51,10 @@ static bool install_bus(i2s_port_t port, int sck, int ws, int sd)
         .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
         .communication_format = I2S_COMM_FORMAT_STAND_I2S,
         .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
-        .dma_buf_count = 4,
+        // 12 x 256 frames = ~190ms of buffering, comfortably more than the
+        // 100ms read block. With only 4 buffers (64ms) any SD write or BLE
+        // stall silently drops samples inside the driver.
+        .dma_buf_count = 12,
         .dma_buf_len = 256,
         .use_apll = false,
         .tx_desc_auto_clear = false,
@@ -181,17 +184,16 @@ void mic_process()
     if (err != ESP_OK || bytes0 == 0) {
         return;
     }
-    if (bus1_ok) {
-        i2s_read(I2S_NUM_1, bus1_buffer, MIC_BUFFER_SAMPLES * MIC_FRAME_BYTES, &bytes1, pdMS_TO_TICKS(40));
-    }
-
     size_t frames = bytes0 / MIC_FRAME_BYTES;
-    size_t frames1 = bytes1 / MIC_FRAME_BYTES;
-    if (bus1_ok && frames1 < frames) {
-        frames = frames1; // same clock domain; counts differ only transiently
-    }
-    if (frames == 0) {
-        return;
+
+    // Bus 1 is advisory: a timeout or short read must never cost us bus 0
+    // audio that has already been drained from its DMA and cannot be re-read.
+    // On any shortfall, treat bus 1 as absent for this block only.
+    bool bus1_valid = false;
+    if (bus1_ok) {
+        esp_err_t err1 =
+            i2s_read(I2S_NUM_1, bus1_buffer, MIC_BUFFER_SAMPLES * MIC_FRAME_BYTES, &bytes1, pdMS_TO_TICKS(40));
+        bus1_valid = (err1 == ESP_OK) && ((bytes1 / MIC_FRAME_BYTES) >= frames);
     }
 
     // Per-channel mean absolute level over this block.
@@ -203,7 +205,7 @@ void mic_process()
         int16_t b = slot_to_s16(bus0_buffer[2 * i + (MIC_BUS0_SWAP_LR ? 0 : 1)]);
         acc[SRC_CASE_A] += (a < 0) ? -a : a;
         acc[SRC_CASE_B] += (b < 0) ? -b : b;
-        if (bus1_ok) {
+        if (bus1_valid) {
             int16_t c = slot_to_s16(bus1_buffer[2 * i + (MIC_BUS1_SWAP_LR ? 1 : 0)]);
             int16_t d = slot_to_s16(bus1_buffer[2 * i + (MIC_BUS1_SWAP_LR ? 0 : 1)]);
             acc[SRC_CASE_C] += (c < 0) ? -c : c;
@@ -219,15 +221,22 @@ void mic_process()
 
     // Lapel presence: recent signal on channel D holds the lapel active so
     // natural pauses in speech don't bounce the source around.
-    if (bus1_ok && level[SRC_LAPEL] > MIC_LAPEL_PRESENT_LEVEL) {
+    if (bus1_valid && level[SRC_LAPEL] > MIC_LAPEL_PRESENT_LEVEL) {
         lapel_hold_until = now + MIC_LAPEL_HOLD_MS;
     }
-    bool lapel_active = bus1_ok && (now < lapel_hold_until);
+    bool lapel_active = bus1_valid && ((int32_t) (now - lapel_hold_until) < 0);
+
+    // If bus 1 dropped out this block, the rear mic's samples are stale -
+    // never emit them, and re-home the incumbent onto a bus 0 channel.
+    if (!bus1_valid && active_case == SRC_CASE_C) {
+        active_case = (level[SRC_CASE_B] > level[SRC_CASE_A]) ? SRC_CASE_B : SRC_CASE_A;
+        candidate_streak = 0;
+    }
 
     // Case-mic selection with hysteresis: challenger must beat the incumbent
     // by MIC_SWITCH_RATIO for MIC_SWITCH_BLOCKS consecutive blocks.
     int best = SRC_CASE_A;
-    int n_case = bus1_ok ? 3 : 2;
+    int n_case = bus1_valid ? 3 : 2;
     for (int ch = 1; ch < n_case; ch++) {
         if (level[ch] > level[best]) {
             best = ch;

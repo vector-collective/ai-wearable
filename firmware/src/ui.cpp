@@ -78,9 +78,11 @@ static void run_pattern(uint32_t now)
         }
         break;
     case PAT_BLINK: {
-        // 150ms on / 150ms off per blink
+        // 350ms on / 350ms off per blink. The main loop only samples this a
+        // few times a second (mic block + SD writes), so a faster cadence
+        // aliases and confirmation blinks get skipped entirely.
         uint32_t t = now - pat_start;
-        int phase = t / 150;
+        int phase = t / 350;
         if (phase >= pat_blinks * 2) {
             led_off();
         } else {

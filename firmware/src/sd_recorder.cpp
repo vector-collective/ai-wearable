@@ -135,7 +135,13 @@ void sd_recorder_bookmark()
     // each bookmark is also a clean file boundary for later demarcation.
     finalize_wav();
     seg_idx++;
-    open_segment();
+    if (!open_segment()) {
+        // Card full or write error: stop cleanly rather than silently
+        // recording video with no audio for the rest of the session.
+        Serial.println("REC: segment roll failed, stopping");
+        recording = false;
+        return;
+    }
     Serial.printf("REC: bookmark -> %s\n", seg_dir);
 }
 
@@ -170,8 +176,10 @@ void sd_recorder_loop(uint32_t now)
         last_patch_ms = now;
     }
 
-    // Frame pump: audio has priority, so a late frame is skipped, not queued
-    if (now - last_frame_ms >= (1000 / VIDEO_FPS)) {
+    // Frame pump: audio has priority, so a late frame is skipped, not queued.
+    // Skip entirely while the BLE photo path holds a frame buffer - grabbing
+    // then would block this loop on the camera's 4s acquire timeout.
+    if (now - last_frame_ms >= (1000 / VIDEO_FPS) && !app_camera_busy()) {
         camera_fb_t *frame = esp_camera_fb_get();
         if (frame) {
             char path[48];

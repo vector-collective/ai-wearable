@@ -274,6 +274,11 @@ void app_register_activity()
     }
 }
 
+bool app_camera_busy()
+{
+    return photoDataUploading || fb != nullptr;
+}
+
 void enableLightSleep()
 {
     if (!lightSleepEnabled || !connected || photoDataUploading) {
@@ -526,20 +531,19 @@ class OTAControlCallback : public BLECharacteristicCallbacks
 // -------------------------------------------------------------------------
 void readBatteryLevel()
 {
-    // Take multiple ADC readings for stability
-    int adcSum = 0;
+    // Averaged without delays: this runs in the audio path, and back-to-back
+    // conversions already settle. analogReadMilliVolts applies the eFuse ADC
+    // calibration, which the raw (adc/4095)*3.3 formula throws away.
+    uint32_t mvSum = 0;
     for (int i = 0; i < 10; i++) {
-        int value = analogRead(BATTERY_ADC_PIN);
-        adcSum += value;
-        delay(10);
+        mvSum += analogReadMilliVolts(BATTERY_ADC_PIN);
     }
-    int adcValue = adcSum / 10;
+    batteryVoltage = (mvSum / 10) * BATTERY_DIVIDER_NUM / 1000.0f;
 
-    // ESP32-S3 ADC: 12-bit (0-4095), reference voltage ~3.3V
-    float adcVoltage = (adcValue / 4095.0f) * 3.3f;
-
-    // Apply voltage divider ratio to get actual battery voltage
-    batteryVoltage = adcVoltage * VOLTAGE_DIVIDER_RATIO;
+    // GPIO2 is shared with the WS2812 data line: never leave it in analog mode,
+    // or the divider holds it at an indeterminate level for the LED.
+    pinMode(BATTERY_ADC_PIN, OUTPUT);
+    digitalWrite(BATTERY_ADC_PIN, LOW);
 
     // Clamp voltage to reasonable range
     if (batteryVoltage > 5.0f)
@@ -771,7 +775,7 @@ void handlePhotoControl(int8_t controlValue)
 void configure_camera()
 {
     Serial.println("Initializing camera...");
-    camera_config_t config;
+    camera_config_t config = {};
     config.ledc_channel = LEDC_CHANNEL_0;
     config.ledc_timer = LEDC_TIMER_0;
     config.pin_d0 = Y2_GPIO_NUM;
@@ -795,7 +799,9 @@ void configure_camera()
     // Use config.h camera settings optimized for battery life
     config.frame_size = CAMERA_FRAME_SIZE;
     config.pixel_format = PIXFORMAT_JPEG;
-    config.fb_count = 1;
+    // Two buffers: with one, a BLE photo upload holds the only frame for
+    // seconds and every recorder grab blocks on a 4s camera timeout.
+    config.fb_count = 2;
     config.jpeg_quality = CAMERA_JPEG_QUALITY;
     config.fb_location = CAMERA_FB_IN_PSRAM;
     config.grab_mode = CAMERA_GRAB_LATEST;

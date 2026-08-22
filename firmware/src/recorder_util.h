@@ -33,9 +33,13 @@ static inline void wav_header_fill(uint8_t h[WAV_HEADER_BYTES], uint32_t sample_
     h[42] = (data_bytes >> 16) & 0xFF; h[43] = (data_bytes >> 24) & 0xFF;
 }
 
+#ifndef REC_ROOT
+#define REC_ROOT "/rec"
+#endif
+
 static inline void rec_session_path(char *out, size_t n, unsigned idx)
 {
-    snprintf(out, n, "/rec/S%04u", idx);
+    snprintf(out, n, REC_ROOT "/S%04u", idx);
 }
 
 static inline void rec_segment_path(char *out, size_t n, const char *session, unsigned seg)
