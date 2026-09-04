@@ -1,4 +1,4 @@
-# Kraken Medallion — pendant enclosure (rev v7)
+# Kraken Medallion — pendant enclosure (rev v8)
 
 A 70mm disc medallion worn on the chest, hosting the XIAO ESP32S3 Sense,
 an LP603449 cell, three INMP441 mics and the camera, under a bas-relief
@@ -12,23 +12,78 @@ kraken whose arms wrap over the rim.
 | Fasteners | 4 × M2 cap head into brass heat-set inserts, 90° bolt circle r=29 |
 | Adhesive | E7000 (owner's choice — worth 0.7mm of Z over foam tape) |
 | Wiring | every joint hand-soldered; no pin headers anywhere |
+| Relief | two materials — body in the kraken colour, eyes + sucker rings in the shell colour |
 
-![face](renders/face.png)
+![face](renders/face_two_material.png)
 
 ## Files
 
 | File | What it is |
 |---|---|
-| `pendant_case_v7.scad` | the design of record; `part=` selects `front`/`back`/`kraken` |
+| `pendant_case_v8.scad` | the design of record; `part=` selects `front`/`back`/`kraken_body`/`kraken_accents` |
 | `build_kraken.py` | regenerates the relief from the source Meshy 3MF |
-| `kraken_wrap_bored.stl` | the relief, wrapped and bored — imported by the SCAD |
+| `split_materials.py` | splits that relief into body + accents for two-material printing |
+| `kraken_body.stl` | the sculpt — **kraken filament** |
+| `kraken_accents.stl` | eyes + sucker rings — **shell filament** |
+| `kraken_wrap_bored.stl` | the un-split relief; input to the splitter, and the single-material fallback |
 | `front_shell.stl`, `back_shell.stl` | rendered shells, both `Simple: yes`, `Volumes: 2` |
+| `pendant_case_v7.scad` | previous revision, single-material relief |
 
 ```
-openscad -o front_shell.stl -D 'part="front"' pendant_case_v7.scad
-openscad -o back_shell.stl  -D 'part="back"'  pendant_case_v7.scad
-python3 build_kraken.py <Meshy_AI_Crimson_Kraken.3mf>
+openscad -o front_shell.stl -D 'part="front"' pendant_case_v8.scad
+openscad -o back_shell.stl  -D 'part="back"'  pendant_case_v8.scad
+python3 build_kraken.py <Meshy_AI_Crimson_Kraken.3mf>   # -> kraken_wrap_bored.stl
+python3 split_materials.py                              # -> body + accents
 ```
+
+## v8 — the eyes and sucker rings print in the shell material
+
+They read as the case showing through the creature. The relief is therefore
+two complementary solids, **4.537 + 0.475 = 5.013 cm³** — exactly the whole
+relief, so the slicer treats them as one object with two materials rather
+than two parts you have to align. Body is a single solid; accents come out
+as 41 islands (the two eyes plus the ring runs along each arm).
+
+**This needs an MMU/AMS or a toolchanger.** The accents sit at ~100 different
+heights scattered across the sculpt, so there is no single Z at which a
+manual filament swap could produce them.
+
+Meshy exports carry no per-feature tags, so both features are found from the
+geometry (`split_materials.py`):
+
+- **sucker rings** — a ring matched filter over five radii (0.62–1.15mm)
+  locates each sucker; a mask-normalised Gaussian high-pass then supplies the
+  exact ring *shape*, so obliquely-viewed elliptical rings come out right.
+  The filter is only a gate: it says where, not what. An analytic annulus at
+  the detected radius is unioned in to *close* the many rings the high-pass
+  only catches an arc of — on its own the high-pass looks scrappy, and the
+  annulus alone looks mechanical.
+- **eyes** — fitted directly: brute-force the best rim circle over the left
+  eye, then mirror about the sculpt's symmetry axis at x=35. Lands at
+  (28.20, 43.60) and (41.80, 43.60), rim radius 3.30mm.
+
+Two details worth knowing if you retune it:
+
+- **Mask-normalised smoothing is not optional.** A plain Gaussian bleeds
+  across the silhouette, which makes every arm edge look raised and puts the
+  detections on the arm outlines instead of the suckers.
+- **The beak is excluded by an explicit ellipse, deliberately.** The mouth's
+  radiating spikes are smooth and carry no suckers — confirmed against the
+  height field — but the *groove between* two adjacent spikes is genuinely
+  dish-shaped with raised flanks, which is a sucker as far as any local
+  detector is concerned. Five discriminators were tried on it: component
+  elongation, ring closure, rim-vs-centre on height rather than residual,
+  angular isotropy, and simply raising the matched-filter threshold. Every
+  one removed real suckers faster than it removed the grooves.
+
+Accents reach 1.2mm below the local surface and stop 0.30mm above the glue
+plane, so every one is backed by body material — none is a loose insert.
+Accents also stop at r=32.3mm: past that the arms roll over the rim, where a
+top-down height field no longer describes the surface. The colour boundary is
+quantised to the 0.15mm raster, which is well under what a 0.4mm nozzle
+resolves.
+
+![eye](renders/eye_detail.png)
 
 ## The three things v7 changed, and why
 
