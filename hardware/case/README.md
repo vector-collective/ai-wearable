@@ -39,10 +39,10 @@ python3 split_materials.py                              # -> body + accents
 ## v8 — the eyes and sucker rings print in the shell material
 
 They read as the case showing through the creature. The relief is therefore
-two complementary solids, **4.537 + 0.475 = 5.013 cm³** — exactly the whole
+two complementary solids, **4.795 + 0.218 = 5.013 cm³** — exactly the whole
 relief, so the slicer treats them as one object with two materials rather
 than two parts you have to align. Body is a single solid; accents come out
-as 41 islands (the two eyes plus the ring runs along each arm).
+as 66 islands (the two eyes plus 107 traced toroids).
 
 **This needs an MMU/AMS or a toolchanger.** The accents sit at ~100 different
 heights scattered across the sculpt, so there is no single Z at which a
@@ -67,6 +67,15 @@ Two details worth knowing if you retune it:
 - **Mask-normalised smoothing is not optional.** A plain Gaussian bleeds
   across the silhouette, which makes every arm edge look raised and puts the
   detections on the arm outlines instead of the suckers.
+- **The ellipse test must be aspect-ratio agnostic.** Requiring a constant
+  crest *radius* threw away exactly the rings worth keeping (153 → 59),
+  because arms are viewed obliquely and a genuine toroid projects to an
+  ellipse of any aspect. Whitening the crest points by their own covariance
+  first fixes it; what the test then rejects is a crest that is not a closed
+  convex curve at all, which is what an arm's silhouette edge gives.
+- **The crest search is windowed to 0.5–1.5× the detected radius.** Scanning
+  outward from the centre lets a ray latch onto a neighbouring sucker's rim,
+  which spills accent onto flat surface between the rings.
 - **The beak is excluded by an explicit ellipse, deliberately.** The mouth's
   radiating spikes are smooth and carry no suckers — confirmed against the
   height field — but the *groove between* two adjacent spikes is genuinely
@@ -83,7 +92,7 @@ top-down height field no longer describes the surface. The colour boundary is
 quantised to the 0.15mm raster, which is well under what a 0.4mm nozzle
 resolves.
 
-![eye](renders/eye_detail.png)
+![toroids](renders/toroid_detail.png)
 
 ## The three things v7 changed, and why
 

@@ -16,9 +16,10 @@ Gaussian high-pass gives the local relief - mask-normalised because a plain
 Gaussian bleeds across the silhouette and makes every arm edge look raised.
 
   sucker rings  a ring matched filter over five radii (0.62-1.15mm) locates
-                each sucker; the high-pass then supplies the exact ring SHAPE,
-                so obliquely-viewed elliptical rings come out right. The filter
-                is only a gate - it says where, not what.
+                each sucker, and then the TRUE toroid is traced: a ray is
+                walked out at each of 128 angles and the crest is where the
+                high-pass peaks along it. Nothing is synthesised, so the ring
+                lands on the sculpted toroid however obliquely it is seen.
   eyes          fitted directly: brute-force the best rim circle in a window
                 over the left eye, then mirror it about the sculpt's symmetry
                 axis at x=35.
@@ -93,6 +94,66 @@ def ring_response(R, solid, radii):
                             - cv(Rs, core)/np.maximum(cn, 1e-9), -9.0)
         u = resp > best; bestr[u] = r0; best[u] = resp[u]
     return best, bestr
+
+
+NA      = 128    # rays per sucker
+FLOOR   = 0.045  # a crest below this is not a ridge
+CREST_W = 0.26   # how far either side of the crest the ring band reaches, mm
+CREST_F = 0.70   # ...or until the profile drops below this fraction of the crest
+CLOSURE = 0.60   # a real toroid has a crest at most angles
+ELLIPFIT= 0.26   # crest points must lie on an ellipse
+
+
+def trace_toroids(R, solid, ys, xs, rr):
+    """Ray-trace each sucker's ridge crest and return the mask of the rings.
+
+    The ellipse test is what it is because a circle test does not work here:
+    arms are viewed obliquely, so a genuine toroid projects to an ellipse of
+    any aspect ratio. Requiring a constant crest RADIUS threw away exactly
+    the rings worth keeping (153 -> 59). Whitening by the crest points' own
+    covariance first makes the test aspect-ratio agnostic - what it rejects
+    is a crest that is not a closed convex curve at all, which is what an
+    arm's silhouette edge produces."""
+    ny, nx = R.shape
+    ang = np.arange(NA)*2*np.pi/NA; ca, sa = np.cos(ang), np.sin(ang)
+    kcap = int(round(CREST_W/(RES*0.5)))
+    m = np.zeros(R.shape, bool); kept = 0
+    for gy, gx, r0 in zip(ys, xs, rr):
+        # Search only a window around the detected radius. Scanning from the
+        # centre outward lets a ray latch onto a NEIGHBOURING sucker's rim
+        # or the arm's own edge, which spills accent onto flat surface.
+        rad = np.arange(max(0.5*r0, 0.20), 1.5*r0, RES*0.5)
+        iy = np.clip((gy+np.outer(sa, rad)/RES).round().astype(int), 0, ny-1)
+        ix = np.clip((gx+np.outer(ca, rad)/RES).round().astype(int), 0, nx-1)
+        prof = np.where(solid[iy, ix], R[iy, ix], -9.0)
+        k = prof.argmax(1); cv = prof[np.arange(NA), k]
+        valid = cv > FLOOR
+        if valid.sum() < 12 or valid.mean() < CLOSURE:
+            continue
+        cr = rad[k][valid]
+        P = np.c_[gx*RES-OFF+ca[valid]*cr, gy*RES-OFF+sa[valid]*cr]
+        P = P - P.mean(0)
+        w, V = np.linalg.eigh(np.cov(P.T)+np.eye(2)*1e-9)
+        q = np.linalg.norm(P @ (V@np.diag(1/np.sqrt(np.maximum(w, 1e-12)))@V.T), axis=1)
+        if q.std()/max(q.mean(), 1e-9) > ELLIPFIT:
+            continue
+        kept += 1
+        for a in np.nonzero(valid)[0]:
+            thr = max(CREST_F*cv[a], FLOOR)
+            lo = hi = k[a]
+            while lo > 0 and prof[a, lo-1] > thr and k[a]-lo < kcap:
+                lo -= 1
+            while hi < len(rad)-1 and prof[a, hi+1] > thr and hi-k[a] < kcap:
+                hi += 1
+            m[iy[a, lo:hi+1], ix[a, lo:hi+1]] = True
+    m = ndi.binary_closing(m, np.ones((2, 2))) & solid
+    # Drop speckle: a traced ring writes a continuous band, so anything this
+    # small is a stray detection rather than part of a toroid.
+    lab, n = ndi.label(m)
+    if n:
+        area = np.bincount(lab.ravel())*RES*RES
+        m &= np.isin(lab, np.nonzero(area >= 0.25)[0][1:] if area[0] < 1e9 else [])
+    return m, kept
 
 
 def fit_eye(R, solid, X, Y):
@@ -205,25 +266,19 @@ def main(src="kraken_wrap_bored.stl"):
     mx = ndi.maximum_filter(best, size=int(1.35/RES) | 1)
     pk = (best == mx) & (best > 0.07) & ~beak
     ys, xs = np.nonzero(pk); rr = bestr[pk]
-    # Two masks per detected sucker, unioned:
-    #   gate    a disc, inside which the high-pass supplies the true ring
-    #           shape - right for obliquely-viewed elliptical rings
-    #   annulus the analytic ring at the detected radius, which CLOSES the
-    #           many rings the high-pass only catches an arc of. On its own
-    #           it looks mechanical; on its own the high-pass looks scrappy.
-    gate = np.zeros(H.shape, bool); annulus = np.zeros(H.shape, bool)
-    for gy, gx, r0 in zip(ys, xs, rr):
-        rad = r0+0.40; k = int(np.ceil(rad/RES))+1
-        a, b = max(gy-k, 0), min(gy+k+1, ny); c, d = max(gx-k, 0), min(gx+k+1, nx)
-        dd = np.hypot((yy[a:b, c:d]-gy)*RES, (xx[a:b, c:d]-gx)*RES)
-        gate[a:b, c:d] |= dd <= rad
-        annulus[a:b, c:d] |= np.abs(dd-r0) <= 0.26
+    # Trace the ACTUAL toroid, do not synthesise one. An earlier revision
+    # unioned in an analytic annulus at the detected radius to close the
+    # rings the high-pass only caught an arc of; on an obliquely-viewed arm
+    # that circle sits off the real sculpted ring, and the two visibly fail
+    # to line up. Instead, walk a ray at every angle out from the sucker
+    # centre: the toroid crest is where the high-pass peaks along that ray.
+    # The result follows the true ring whatever its shape, and closes by
+    # construction because every angle contributes.
+    m_suck, n_toroid = trace_toroids(R, solid, ys, xs, rr)
     inner = ndi.binary_erosion(solid, np.ones((int(0.35/RES) | 1,)*2))
-    shape = ((R > 0.055) & gate) | annulus
-    m_suck = ndi.binary_closing(ndi.binary_opening(
-        shape & solid & inner & ~m_eyes & ~beak, np.ones((3, 3))), np.ones((3, 3)))
-    print(f"{len(ys)} sucker gates -> rings {m_suck.sum()*RES*RES:.1f} mm2, "
-          f"eyes {m_eyes.sum()*RES*RES:.1f} mm2")
+    m_suck = m_suck & inner & ~m_eyes & ~beak
+    print(f"{len(ys)} candidates -> {n_toroid} toroids traced, "
+          f"rings {m_suck.sum()*RES*RES:.1f} mm2, eyes {m_eyes.sum()*RES*RES:.1f} mm2")
 
     M = (m_suck | m_eyes) & (np.hypot(X-35, Y-35) <= RIM_R)
     M = de_diagonal(ndi.binary_closing(M, np.ones((3, 3))))
