@@ -25,6 +25,19 @@ static QueueHandle_t cmd_queue = nullptr;
 static TaskHandle_t rec_task = nullptr;
 
 static volatile bool mounted = false;
+
+// GPIO21 is both the SD chip select and the onboard LED, so exactly one owner
+// may drive it. This flag - not `mounted` - is what the LED code checks.
+//
+// Guarding on `mounted` was wrong in a way that only bites when it matters:
+// `mounted` is not set until SD.begin() RETURNS, so the entire duration of the
+// mount - tens to hundreds of milliseconds of SPI traffic with GPIO21 as an
+// active chip select - read as "LED still free", and the main loop was at
+// liberty to drive the pin straight through the transaction it was clocking.
+// The flag is set before the library is handed the pin, and never cleared: a
+// failed mount still leaves GPIO21 configured as CS. The WS2812 on GPIO2 is
+// the user-facing indicator from that point on.
+static volatile bool cs_claimed = false;
 static volatile bool recording = false; // reflects the task's real state
 static volatile bool start_pending = false;
 static volatile uint32_t audio_dropped_bytes = 0;
@@ -46,6 +59,10 @@ static bool mount_sd()
     if (mounted) {
         return true;
     }
+    // Belt and braces: sd_recorder_start() normally claims the pin on the
+    // caller's core before this task ever runs, but any other route into a
+    // mount must claim it too, and must do so BEFORE the library touches it.
+    cs_claimed = true;
     SPI.begin(SD_SPI_SCK_PIN, SD_SPI_MISO_PIN, SD_SPI_MOSI_PIN);
     if (!SD.begin(SD_CS_PIN, SPI, SD_SPI_FREQ_HZ)) {
         Serial.println("REC: SD mount failed (no card?)");
@@ -241,6 +258,11 @@ bool sd_recorder_start()
     if (!ensure_task()) {
         return false;
     }
+    // Claimed here, on the CALLER's core, rather than inside mount_sd() on the
+    // recorder task. Setting it cross-core would leave a window where the LED
+    // code had already read "free" and was about to write. Claiming it before
+    // the task can be told to start closes that window entirely.
+    cs_claimed = true;
     start_pending = true;
     uint8_t cmd = CMD_START;
     if (xQueueSend(cmd_queue, &cmd, 0) != pdTRUE) {
@@ -293,6 +315,11 @@ bool sd_recorder_starting()
 bool sd_recorder_mounted()
 {
     return mounted;
+}
+
+bool sd_recorder_cs_claimed()
+{
+    return cs_claimed;
 }
 
 uint8_t sd_recorder_free_pct()

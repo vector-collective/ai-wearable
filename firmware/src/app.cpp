@@ -12,15 +12,19 @@
 #include "mic.h"
 #include "opus_encoder.h"
 #include "ota.h"
+#include "photo_logic.h"
 #include "sd_recorder.h"
 #include "ui.h"
 
-// GPIO21 doubles as the SD card's chip select: once the SD is mounted the
-// status LED may never be driven again, or card transactions get corrupted.
-// The external WS2812 (ui.cpp) takes over user signaling.
+// GPIO21 doubles as the SD card's chip select: once the SD library has been
+// handed the pin the status LED may never be driven again, or card
+// transactions get corrupted. The external WS2812 (ui.cpp) takes over user
+// signaling. Note this asks whether the pin has been CLAIMED, not whether the
+// card MOUNTED - the mount itself is the dangerous window, and it is over by
+// the time sd_recorder_mounted() turns true.
 static inline void statusLedWrite(int v)
 {
-    if (!sd_recorder_mounted()) {
+    if (!sd_recorder_cs_claimed()) {
         digitalWrite(STATUS_LED_PIN, v);
     }
 }
@@ -932,15 +936,22 @@ void loop_app()
         }
     }
 
-    // If uploading, send chunks over BLE (interleave with audio - max 2 chunks per loop)
-    static int photo_chunks_this_loop = 0;
-    if (photoDataUploading && fb && photo_chunks_this_loop < 2) {
-        // Yield to audio if audio buffer has data
-        if (audioSubscribed && audio_tx_read_pos != audio_tx_write_pos) {
-            photo_chunks_this_loop = 0; // Reset for next loop
-        } else {
-            photo_chunks_this_loop++;
-        }
+    // Photo chunks over BLE. Audio is realtime and photos are not, so a
+    // pending audio packet stops the photo path for this iteration and the
+    // rest of the frame goes out next time round.
+    //
+    // The counter has to be per-iteration. As a static it did the opposite of
+    // what the throttle intends: the "yield to audio" branch reset it to zero
+    // and then fell through and sent the chunk anyway, so whenever audio WAS
+    // waiting the limit never accumulated and photos competed on every single
+    // pass - hardest exactly when audio needed the bandwidth most. With audio
+    // idle it stuttered the other way, sending on two iterations out of every
+    // three, because the count was only cleared once it had already blocked a
+    // pass.
+    for (int chunk = 0; photo_should_send_chunk(photoDataUploading, fb != nullptr, audioSubscribed,
+                                                audio_tx_read_pos != audio_tx_write_pos, chunk,
+                                                PHOTO_CHUNKS_PER_LOOP);
+         chunk++) {
         size_t remaining = fb->len - sent_photo_bytes;
         if (remaining > 0) {
             size_t bytes_to_copy;
@@ -987,10 +998,7 @@ void loop_app()
             esp_camera_fb_return(fb);
             fb = nullptr;
             Serial.println("Camera frame buffer freed.");
-            photo_chunks_this_loop = 0; // Reset counter
         }
-    } else {
-        photo_chunks_this_loop = 0; // Reset when not uploading
     }
 
     // Light sleep optimization - major power savings while maintaining BLE

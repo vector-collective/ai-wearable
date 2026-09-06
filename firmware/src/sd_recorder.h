@@ -17,7 +17,8 @@ void sd_recorder_loop(uint32_t now);                   // no-op; work runs in th
 void sd_recorder_feed_audio(int16_t *data, size_t samples);
 bool sd_recorder_active();                             // session actually running
 bool sd_recorder_starting();                           // start queued, not yet confirmed
-bool sd_recorder_mounted();                            // true once SD ever mounted (GPIO21 is then off-limits as LED)
+bool sd_recorder_mounted();                            // true once SD ever mounted
+bool sd_recorder_cs_claimed();                         // GPIO21 handed to the SD library: never drive it as an LED again
 uint8_t sd_recorder_free_pct();                        // 0-100, 0 if no card
 
 #endif // SD_RECORDER_H

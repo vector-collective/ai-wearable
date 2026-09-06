@@ -234,6 +234,11 @@ typedef enum {
 #define REC_TASK_CORE 0
 #define REC_AUDIO_STREAM_BYTES 32768 // ~1s of 16k mono PCM in flight
 // Video is a button-toggled session layered on top of always-on audio.
+
+// Photo chunks pushed over BLE per main-loop pass. A hard per-iteration cap:
+// the loop breaks early whenever an audio packet is waiting, because audio is
+// realtime and a photo is not.
+#define PHOTO_CHUNKS_PER_LOOP 2
 // One frame per 30s matches the SenseCam evidence base for photo-cued recall
 // (~1 image / 30s) at ~1/150th the data rate and SD load of 5fps.
 #define VIDEO_FRAME_INTERVAL_MS 30000
