@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="210.0mm" height="279.0mm" viewBox="0 0 210.0 279.0">
+<rect width="210.0" height="279.0" fill="#fff"/>
+<text x="12" y="8" font-size="4" font-family="sans-serif" font-weight="bold" fill="#111">PENDANT POUCH Mk1 &#183; cutting pattern &#183; sheet 2 of 2</text>
+<text x="12" y="273.0" font-size="3" font-family="monospace" fill="#444">1:1 &#183; print at 100%, not "fit to page" &#183; cut to finished size, edges are bound so no seam allowance is included</text>
+<g id="gusset">
+<path d="M12,14 h24.0 v205.0 h-24.0 Z" fill="none" stroke="#111" stroke-width="0.5"/>
+<line x1="12" y1="116.50" x2="15" y2="116.50" stroke="#111" stroke-width="0.5"/>
+<line x1="33.0" y1="116.50" x2="36.0" y2="116.50" stroke="#111" stroke-width="0.5"/>
+<text x="21.00" y="69.00" font-size="4.2" font-family="sans-serif" font-weight="bold" fill="#111" transform="rotate(-90 21.00 69.00)">GUSSET</text>
+</g>
+<g id="sleeve">
+<path d="M48,14 h40.0 v180.0 h-40.0 Z" fill="none" stroke="#111" stroke-width="0.5"/>
+<line x1="48" y1="174.00" x2="88.0" y2="174.00" stroke="#111" stroke-width="0.35" stroke-dasharray="5 3"/>
+<text x="86.0" y="172.40" font-size="3" font-family="monospace" fill="#111" text-anchor="end">fold 20</text>
+<text x="61.00" y="74.00" font-size="4.2" font-family="sans-serif" font-weight="bold" fill="#111" transform="rotate(-90 61.00 74.00)">NAPE SLEEVE</text>
+</g>
+<g id="tab">
+<path d="M100,14 h20.0 v60.0 h-20.0 Z" fill="none" stroke="#111" stroke-width="0.5"/>
+<line x1="100" y1="44.00" x2="120.0" y2="44.00" stroke="#111" stroke-width="0.35" stroke-dasharray="5 3"/>
+<text x="118.0" y="42.40" font-size="3" font-family="monospace" fill="#111" text-anchor="end">fold 30</text>
+<text x="113.00" y="30.00" font-size="4.2" font-family="sans-serif" font-weight="bold" fill="#111" transform="rotate(-90 113.00 30.00)">D-RING TAB &#215;2</text>
+</g>
+<g id="tab">
+<path d="M128,14 h20.0 v60.0 h-20.0 Z" fill="none" stroke="#111" stroke-width="0.5"/>
+<line x1="128" y1="44.00" x2="148.0" y2="44.00" stroke="#111" stroke-width="0.35" stroke-dasharray="5 3"/>
+<text x="146.0" y="42.40" font-size="3" font-family="monospace" fill="#111" text-anchor="end">fold 30</text>
+<text x="141.00" y="30.00" font-size="4.2" font-family="sans-serif" font-weight="bold" fill="#111" transform="rotate(-90 141.00 30.00)">D-RING TAB &#215;2</text>
+</g>
+<g id="patch">
+<path d="M106,84 h18.0 a6,6 0 0 1 6,6 v18.0 a6,6 0 0 1 -6,6 h-18.0 a6,6 0 0 1 -6,-6 v-18.0 a6,6 0 0 1 6,-6 Z" fill="none" stroke="#111" stroke-width="0.5"/>
+<circle cx="115.00" cy="99.00" r="2.00" fill="none" stroke="#111" stroke-width="0.45"/>
+<path d="M110.80,99.00 h8.40 M115.00,94.80 v8.40" stroke="#111" stroke-width="0.2"/>
+<text x="115.00" y="93.60" font-size="2.7" font-family="monospace" fill="#111" text-anchor="middle">socket &#8709;4</text>
+<text x="106.00" y="108.00" font-size="4.2" font-family="sans-serif" font-weight="bold" fill="#111">SNAP PATCH</text>
+</g>
+<text x="100" y="130" font-size="3.6" font-family="sans-serif" font-weight="bold" fill="#111">CUT LIST &#183; THIS SHEET</text>
+<text x="100" y="137.0" font-size="3" font-family="monospace" fill="#333">GUSSET &#183; Laminate &#183; 24&#215;205</text>
+<text x="100" y="142.2" font-size="3" font-family="monospace" fill="#333">NAPE SLEEVE &#183; Laminate &#183; 40&#215;180</text>
+<text x="100" y="147.4" font-size="3" font-family="monospace" fill="#333">D-RING TAB &#215;2 &#183; Veg-tan 4-5 oz &#183; 20&#215;60</text>
+<text x="100" y="152.6" font-size="3" font-family="monospace" fill="#333">SNAP PATCH &#183; Veg-tan 4-5 oz &#183; 30&#215;30 R6</text>
+<text x="100" y="157.8" font-size="3" font-family="monospace" fill="#333">gusset fits 190mm &#183; cut long, trim at assembly</text>
+<rect x="100" y="190" width="50" height="50" fill="none" stroke="#111" stroke-width="0.5"/>
+<text x="125" y="217" font-size="4" font-family="monospace" fill="#111" text-anchor="middle">50 mm</text>
+<text x="125" y="223" font-size="2.8" font-family="monospace" fill="#444" text-anchor="middle">measure before cutting</text>
+</svg>
