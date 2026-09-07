@@ -239,6 +239,20 @@ typedef enum {
 // the loop breaks early whenever an audio packet is waiting, because audio is
 // realtime and a photo is not.
 #define PHOTO_CHUNKS_PER_LOOP 2
+
+// =============================================================================
+// NEW-VOICE PHOTO BURST + TIMELINE (docs/SPEC.md sections 2, 3)
+// =============================================================================
+#define BURST_COUNT_DEFAULT 10          // every 3s for 30s
+#define BURST_INTERVAL_MS_DEFAULT 3000
+#define BURST_HOLDOFF_MS 5000           // a local candidate waits this long for a
+                                        // remote verdict; this IS the latency policy
+#define BURST_SUPPRESS_MS (30UL * 60UL * 1000UL)  // per speaker hint
+#define BURST_MIN_GAP_MS 60000UL        // between any two bursts
+#define BURST_DAY_MS (24UL * 60UL * 60UL * 1000UL)
+#define BURST_DAILY_CAP 20
+#define BURST_DIR "/rec/bursts"
+#define EVENTS_PATH "/rec/events.csv"
 // One frame per 30s matches the SenseCam evidence base for photo-cued recall
 // (~1 image / 30s) at ~1/150th the data rate and SD load of 5fps.
 #define VIDEO_FRAME_INTERVAL_MS 30000
@@ -267,6 +281,9 @@ typedef enum {
 #define AUDIO_CODEC_UUID "19B10002-E8F2-537E-4F6C-D104768A1214"
 #define PHOTO_DATA_UUID "19B10005-E8F2-537E-4F6C-D104768A1214"
 #define PHOTO_CONTROL_UUID "19B10006-E8F2-537E-4F6C-D104768A1214"
+// Speaker-aware additions (docs/SPEC.md 3.1)
+#define CAPTURE_CTRL_UUID "19B10007-E8F2-537E-4F6C-D104768A1214"  // write: op + fields
+#define TIME_SYNC_UUID "19B10008-E8F2-537E-4F6C-D104768A1214"     // write: u64 LE epoch ms
 
 // Battery Service UUID - Cast to uint16_t for BLE compatibility
 #define BATTERY_SERVICE_UUID (uint16_t) 0x180F

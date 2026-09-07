@@ -17,6 +17,13 @@ void sd_recorder_loop(uint32_t now);                   // no-op; work runs in th
 void sd_recorder_feed_audio(int16_t *data, size_t samples);
 bool sd_recorder_active();                             // session actually running
 bool sd_recorder_starting();                           // start queued, not yet confirmed
+// Photo burst to BURST_DIR, independent of any video session. Frames are
+// named B<boot>_<millis>_<i>.jpg and each is logged to events.csv. The
+// camera is powered up for the burst if it was down, and powered down
+// again after unless a session owns it.
+bool sd_recorder_burst(uint8_t count, uint16_t interval_ms, uint8_t src, uint32_t hint);
+void sd_recorder_burst_cancel();
+bool sd_recorder_burst_active();
 bool sd_recorder_mounted();                            // true once SD ever mounted
 bool sd_recorder_cs_claimed();                         // GPIO21 handed to the SD library: never drive it as an LED again
 uint8_t sd_recorder_free_pct();                        // 0-100, 0 if no card

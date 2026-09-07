@@ -11,6 +11,8 @@
 #include "esp_sleep.h"
 #include "mic.h"
 #include "opus_encoder.h"
+#include "burst.h"
+#include "events.h"
 #include "ota.h"
 #include "photo_logic.h"
 #include "sd_recorder.h"
@@ -66,6 +68,8 @@ static BLEUUID photoDataUUID(PHOTO_DATA_UUID);
 static BLEUUID photoControlUUID(PHOTO_CONTROL_UUID);
 static BLEUUID audioDataUUID(AUDIO_DATA_UUID);
 static BLEUUID audioCodecUUID(AUDIO_CODEC_UUID);
+static BLEUUID captureCtrlUUID(CAPTURE_CTRL_UUID);
+static BLEUUID timeSyncUUID(TIME_SYNC_UUID);
 
 // OTA Service UUIDs
 static BLEUUID otaServiceUUID(OTA_SERVICE_UUID);
@@ -80,6 +84,8 @@ BLECharacteristic *audioDataCharacteristic;
 BLECharacteristic *audioCodecCharacteristic;
 BLECharacteristic *otaControlCharacteristic;
 BLECharacteristic *otaDataCharacteristic;
+BLECharacteristic *captureCtrlCharacteristic;
+BLECharacteristic *timeSyncCharacteristic;
 
 // Audio state
 bool audioEnabled = true;
@@ -452,6 +458,35 @@ class PhotoControlCallback : public BLECharacteristicCallbacks
     }
 };
 
+// CAPTURE_CTRL: verdicts from the phone/server, manual bursts, quiet mode.
+class CaptureCtrlCallback : public BLECharacteristicCallbacks
+{
+    void onWrite(BLECharacteristic *characteristic) override
+    {
+        lastActivity = millis();
+        burst_handle_ctrl(characteristic->getData(), characteristic->getLength());
+    }
+};
+
+// TIME_SYNC: 8 bytes, little-endian Unix epoch milliseconds. Anything else
+// is ignored rather than guessed at - a wrong anchor is worse than none.
+class TimeSyncCallback : public BLECharacteristicCallbacks
+{
+    void onWrite(BLECharacteristic *characteristic) override
+    {
+        if (characteristic->getLength() != 8) {
+            Serial.printf("TIME_SYNC: bad length %u\n", (unsigned) characteristic->getLength());
+            return;
+        }
+        const uint8_t *d = characteristic->getData();
+        uint64_t epoch = 0;
+        for (int i = 7; i >= 0; i--) {
+            epoch = (epoch << 8) | d[i];
+        }
+        events_time_sync(epoch);
+    }
+};
+
 class OTAControlCallback : public BLECharacteristicCallbacks
 {
     void onWrite(BLECharacteristic *pChar) override
@@ -586,6 +621,12 @@ void configure_ble()
     photoControlCharacteristic->setCallbacks(new PhotoControlCallback());
     uint8_t controlValue = 0;
     photoControlCharacteristic->setValue(&controlValue, 1);
+
+    // Capture control and time sync (docs/SPEC.md 3.1)
+    captureCtrlCharacteristic = service->createCharacteristic(captureCtrlUUID, BLECharacteristic::PROPERTY_WRITE);
+    captureCtrlCharacteristic->setCallbacks(new CaptureCtrlCallback());
+    timeSyncCharacteristic = service->createCharacteristic(timeSyncUUID, BLECharacteristic::PROPERTY_WRITE);
+    timeSyncCharacteristic->setCallbacks(new TimeSyncCallback());
 
     // Battery Service
     BLEService *batteryService = server->createService(BATTERY_SERVICE_UUID);
@@ -815,6 +856,10 @@ void setup_app()
     // Start LED boot sequence
     ledMode = LED_BOOT_SEQUENCE;
 
+    // Timeline first, so the boot event has the lowest millis of the boot
+    events_init();
+    burst_init();
+
     // Case UI: button + WS2812 + battery gauge
     ui_init();
 
@@ -876,6 +921,7 @@ void loop_app()
     // Case UI state machine (battery check / record / bookmark / stop)
     ui_loop(now);
     sd_recorder_loop(now);
+    burst_loop(now); // expires hold-offs; fires on the device's own authority
 
     // Update LED
     updateLED();

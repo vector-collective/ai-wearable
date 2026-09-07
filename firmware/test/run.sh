@@ -9,5 +9,7 @@ for LAPEL in 0 1; do
 done
 echo "--- photo pacing tests ---"
 g++ -std=gnu++17 -Wall -Wextra -I . -I ../src test_photo.cpp -o photo_test && ./photo_test
+echo "--- burst / timesync / event ring tests ---"
+g++ -std=gnu++17 -Wall -Wextra -I . -I ../src test_burst.cpp -o burst_test && ./burst_test
 echo "--- ui tests ---"
 g++ -std=gnu++17 -Wall -Wextra -I . -I ../src test_ui.cpp -o ui_test && ./ui_test

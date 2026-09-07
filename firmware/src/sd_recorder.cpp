@@ -11,6 +11,7 @@
 
 #include "app.h"
 #include "config.h"
+#include "events.h"
 #include "recorder_util.h"
 
 // Everything that can stall - SD directory updates, multi-hundred-millisecond
@@ -18,7 +19,7 @@
 // in loop_app(). Audio capture therefore never waits on storage, which is what
 // lets the camera run at full resolution and quality.
 
-enum rec_cmd { CMD_START = 1, CMD_STOP };
+enum rec_cmd { CMD_START = 1, CMD_STOP, CMD_BURST, CMD_BURST_CANCEL };
 
 static StreamBufferHandle_t audio_stream = nullptr;
 static QueueHandle_t cmd_queue = nullptr;
@@ -39,6 +40,22 @@ static volatile bool mounted = false;
 // the user-facing indicator from that point on.
 static volatile bool cs_claimed = false;
 static volatile bool recording = false; // reflects the task's real state
+
+// Burst request, written by the caller before CMD_BURST is queued and read
+// by the task when it dequeues it. One in flight at a time.
+static struct {
+    uint8_t count;
+    uint16_t interval_ms;
+    uint8_t src;
+    uint32_t hint;
+} volatile burst_req = {0, 0, 0, 0};
+// Task-owned burst state
+static bool burst_active = false;     // explicit: `remaining == 0` is also the end state
+static uint8_t burst_remaining = 0;
+static uint8_t burst_idx = 0;
+static uint32_t burst_next_ms = 0;
+static uint32_t burst_started_ms = 0;
+static bool burst_owns_camera = false;
 static volatile bool start_pending = false;
 static volatile uint32_t audio_dropped_bytes = 0;
 static volatile uint8_t cached_free_pct = 0;
@@ -111,6 +128,94 @@ static bool open_segment()
     return open_wav(seg_dir);
 }
 
+static void burst_finish(bool cancelled)
+{
+    if (!burst_active) {
+        return;
+    }
+    burst_active = false;
+    burst_remaining = 0;
+    events_logf(EV_BURST_END, "frames=%u%s", burst_idx, cancelled ? " cancelled" : "");
+    Serial.printf("REC: burst end, %u frames%s\n", burst_idx, cancelled ? " (cancelled)" : "");
+    // "the camera goes dark": only if the burst brought it up and no session
+    // is using it
+    if (burst_owns_camera && !recording) {
+        app_camera_stop();
+    }
+    burst_owns_camera = false;
+}
+
+static void burst_begin()
+{
+    if (!mount_sd()) {
+        events_log(EV_BURST_END, "no card");
+        return;
+    }
+    SD.mkdir(REC_ROOT);
+    SD.mkdir(BURST_DIR);
+    if (!app_camera_ready()) {
+        if (!app_camera_start()) {
+            events_log(EV_BURST_END, "camera failed");
+            Serial.println("REC: burst - camera failed to start");
+            return;
+        }
+        burst_owns_camera = true;
+    }
+    burst_active = true;
+    burst_remaining = burst_req.count;
+    burst_idx = 0;
+    burst_started_ms = millis();
+    burst_next_ms = burst_started_ms; // first frame as soon as the sensor settles
+    events_logf(EV_BURST_START, "src=%u hint=%lu n=%u dt=%u", burst_req.src, (unsigned long) burst_req.hint,
+                burst_req.count, burst_req.interval_ms);
+    Serial.printf("REC: burst begin, %u frames every %ums\n", burst_req.count, burst_req.interval_ms);
+}
+
+// One frame of an active burst, if it is due. Runs every task pass whether
+// or not a session is recording.
+static void burst_pump(uint32_t now)
+{
+    if (!burst_active) {
+        return;
+    }
+    // A burst that cannot get frames must still end, or it pins
+    // burst_active and refuses every later burst. Budget: the whole
+    // schedule plus 10s for the sensor to come up.
+    uint32_t budget = (uint32_t) burst_req.count * burst_req.interval_ms + 10000UL;
+    if ((uint32_t) (now - burst_started_ms) > budget) {
+        Serial.println("REC: burst timed out waiting for the camera");
+        burst_finish(true);
+        return;
+    }
+    if ((int32_t) (now - burst_next_ms) < 0) {
+        return;
+    }
+    if (!app_camera_ready() || app_camera_busy()) {
+        return; // try again next pass; the interval clock keeps counting
+    }
+    camera_fb_t *frame = esp_camera_fb_get();
+    if (frame) {
+        char path[64];
+        snprintf(path, sizeof(path), BURST_DIR "/B%lu_%lu_%02u.jpg", (unsigned long) events_boot_id(),
+                 (unsigned long) burst_started_ms, burst_idx);
+        File f = SD.open(path, FILE_WRITE);
+        if (f) {
+            f.write(frame->buf, frame->len);
+            f.close();
+            events_log(EV_BURST_FRAME, path + strlen(BURST_DIR) + 1);
+        } else {
+            events_log(EV_BURST_FRAME, "write failed");
+        }
+        esp_camera_fb_return(frame);
+        burst_idx++;
+    }
+    burst_remaining--;
+    burst_next_ms += burst_req.interval_ms;
+    if (burst_remaining == 0) {
+        burst_finish(false);
+    }
+}
+
 static bool session_start()
 {
     if (!mount_sd()) {
@@ -135,6 +240,7 @@ static bool session_start()
     xStreamBufferReset(audio_stream);
     last_frame_ms = 0;
     last_patch_ms = millis();
+    events_log(EV_SESSION_START, session_dir);
     Serial.printf("REC: started %s\n", session_dir);
     return true;
 }
@@ -142,7 +248,14 @@ static bool session_start()
 static void session_stop()
 {
     finalize_wav();
-    app_camera_stop();
+    events_logf(EV_SESSION_STOP, "%s seg=%u", session_dir, seg_idx);
+    // A burst that started during the session inherits the camera it is
+    // using; it powers it down itself when it ends.
+    if (burst_active) {
+        burst_owns_camera = true;
+    } else {
+        app_camera_stop();
+    }
     cached_free_pct = disk_free_pct(SD.totalBytes(), SD.usedBytes());
     Serial.printf("REC: stopped %s (%u segments, %u audio bytes dropped)\n", session_dir, seg_idx,
                   (unsigned) audio_dropped_bytes);
@@ -182,7 +295,22 @@ static void rec_task_fn(void *)
                     session_stop();
                 }
                 break;
+            case CMD_BURST:
+                if (burst_remaining == 0) {
+                    burst_begin();
+                }
+                break;
+            case CMD_BURST_CANCEL:
+                burst_finish(true);
+                break;
             }
+        }
+
+        // These run every pass, session or not: the burst pump, and the
+        // timeline flush - both need the card, neither needs a session.
+        if (mounted) {
+            burst_pump(millis());
+            events_flush_to_sd();
         }
 
         if (!recording) {
@@ -272,6 +400,37 @@ bool sd_recorder_start()
     // Optimistic: the LED confirms the request, and a mount failure is
     // reported by the task in the serial log and by sd_recorder_active().
     return true;
+}
+
+bool sd_recorder_burst(uint8_t count, uint16_t interval_ms, uint8_t src, uint32_t hint)
+{
+    if (count == 0 || burst_active) {
+        return false;
+    }
+    if (!ensure_task()) {
+        return false;
+    }
+    cs_claimed = true; // same reasoning as sd_recorder_start()
+    burst_req.count = count;
+    burst_req.interval_ms = interval_ms;
+    burst_req.src = src;
+    burst_req.hint = hint;
+    uint8_t cmd = CMD_BURST;
+    return xQueueSend(cmd_queue, &cmd, 0) == pdTRUE;
+}
+
+void sd_recorder_burst_cancel()
+{
+    if (cmd_queue == nullptr) {
+        return;
+    }
+    uint8_t cmd = CMD_BURST_CANCEL;
+    xQueueSend(cmd_queue, &cmd, 0);
+}
+
+bool sd_recorder_burst_active()
+{
+    return burst_active;
 }
 
 void sd_recorder_stop()
