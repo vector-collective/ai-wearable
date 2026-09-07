@@ -1,2 +1,1 @@
-firmware/test/mic_test
-firmware/test/ui_test
+firmware/test/*_test
