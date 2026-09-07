@@ -119,10 +119,9 @@
 // its check by 0.09mm because the check used the hole, not the module.
 //
 // STILL YOUR BENCH: charge current (at 100mA a refill outlasts the
-// runtime and the device loses ground daily); the camera needs Seeed's
-// EXTENSION FPC - the stock cable is meant to fold onto the board and
-// will not reach (47.2, 57.6); and the sculpt needs a local ~3mm relief
-// pocket at the camera, where mean sculpt height is 0.3mm but peaks 2.8.
+// runtime and the device loses ground daily). v6's other two blockers are
+// gone: the camera sits over the board with the STOCK FPC folded (see
+// board_xy) and the aperture is bored through the relief.
 // =====================================================================
 
 part = "assembled";
@@ -130,7 +129,10 @@ part = "assembled";
 case_r  = 35;
 wall    = 1.8;
 front_d = 6.5;      // v6: trimmed to the minimum the mic ring+disc stack (3.8) allows
-back_d  = 17.8;     // v6: interior 20.7 vs 20.2 needed - margin +0.5
+back_d  = 18.1;     // v9: interior 21.0 vs 20.2. Resin post-cure shrinks 0.3-1%;
+                    // at 1% the old 20.7 interior became 20.49 against a stack
+                    // that is itself +/-0.3 - negative. Grown here, not the front:
+                    // front_d is what the arm-wrap bend was computed against.
 case_d  = front_d + back_d;
 inner_r = case_r - wall;
 cx = 35; cy = 35;
@@ -146,26 +148,36 @@ batt_t = 6.3; batt_w = 34.5; batt_l = 51;      // LP603449 MAX envelope
 batt_clear = 0.6;                               // per side - v4 had ZERO
 mic_disc_d = 14; led_disc_d = 10;
 mic_port_d = 2.2;
-ring_bore_extra = 0.25;  // v9 resin: light bleed only, ~0.1 undersize (FDM was 0.6)
+ring_bore_extra = 0.25;  // v9 resin: bore 14.25 prints ~14.15, ~0.08/side (FDM was 0.6)
 ring_wall = 1.4;         // was 1.0 - too fragile to retain
 ring_h    = 2.2;         // was 1.2 - now takes a PORON gasket, see below
-cam_lens_d = 8.8;        // v9 resin: 8.5 nominal +0.3 (FDM needed 9.0)
+cam_lens_d = 9.0;        // an OPTICAL aperture, not a fit: the 8.5 square module
+                         // has a 12.0 diagonal and never passes through it
 cam_mod_half_diag = 6.01;
 button_hole_d = 12.3;    // v9 resin: 12.0 thread +0.3 (FDM needed 12.6)
 button_depth  = 14.4;
 usbc_w = 10.5; usbc_h = 4.0; usbc_depth = 12.0;
-sw_d = 7.0; sw_depth = 8.0;
+sw_d = 7.2; sw_depth = 8.0;     // v9: 7.0 was zero clearance on an M7 bushing
 led_window_d = 6.4;
 
-// ---- fasteners: M2 tapped in resin ----
+// ---- fasteners: captured M2 nuts in the front bosses ----
 // v5-v8 used heat-set brass inserts, which cannot be set in a thermoset.
-// Resin at 50+ MPa takes an M2x0.4 thread directly: pilot 1.65 (tap drill
-// is 1.6; the extra 0.05 covers light bleed), boss 7.0 OD for a 2.7mm wall
-// around the thread. Tap by hand with a taper tap, no power. If a thread
-// ever strips, drill to 2.5 and epoxy in a press-fit M2 insert - epoxy, not
-// heat.
-boss_od = 7.0; tap_pilot_d = 1.65; screw_clear_d = 2.3; screw_head_d = 4.1;
-boss_xy = [[55.5,55.5],[14.5,55.5],[14.5,14.5],[55.5,14.5]];  // v6: true 90deg bolt circle, r=29
+// Tapping M2 into rigid resin was the next idea and both reviews rejected
+// it for a case opened every battery swap: 3-5 cycles and it strips or
+// cracks. So: a DIN 934 M2 nut (4.0 AF x 1.6) drops into a hex pocket at
+// the top of each front boss, the back shell's boss face covers it, and an
+// M2x20 comes through from the back. Load on the resin is pure
+// compression. No thread, no adhesive, and a spare nut fixes anything.
+boss_od = 8.0;            // 1.55 wall at the hex corners
+nut_af = 4.25;            // 4.0 nut + 0.25
+nut_pocket_h = 1.8;       // 1.6 nut + 0.2
+nut_clear_d = 2.4;        // screw tip clearance below the nut
+nut_clear_h = 2.5;        // floor stays 2.2 thick under it
+screw_clear_d = 2.3; screw_head_d = 4.0;   // ISO 7380 M2 button head, 3.8 x 1.3 tall
+screw_cbore_h = 1.5;                       // head sits 0.2 sub-flush on the chest face
+boss_xy = [[56.57,56.57],[13.43,56.57],[13.43,13.43],[56.57,13.43]];  // v9: r=30.5. At r=29 an
+                          // 8.0 boss bit 0.75 into a max-envelope cell; at 30.5 it clears by 0.3
+                          // and fuses 1.3 into the wall, which is fine in resin.
 
 // ---- solved layout (structure-first; see header) ----
 // v7: re-solved against the TRUE silhouette. v5/v6 rasterised the sculpt
@@ -181,6 +193,16 @@ mic1_xy = [22.8, 41.6];   // 10.93mm, sculpt gap 1.20
 mic2_xy = [44.4, 22.0];   //  8.76mm, sculpt gap 1.20
 mic3_xy = [25.6, 21.6];   //  8.43mm, sculpt gap 1.20
 // mic spread 18.8 / 20.2 / 29.2mm
+
+// BOARD KEEP-OUT (v9). The stock FPC folds 180 deg so the camera module
+// lies ON the Sense board, centred 2-4mm off board centre toward the SD
+// end, with +/-2mm play along the FPC and +/-0.5 across. So the board sits
+// with its LONG AXIS ALONG X and its centre 3mm from the lens in X. Long
+// axis along Y overlaps mic2's disc by ~5mm - the board's front face is at
+// z=4.3 in front-shell terms and the mic stack tops out at 5.6, so the
+// board may not overlap any disc. Long-axis-X clears mic2 by 0.9 in Y.
+board_xy = [45.4, 38.8];
+board_l = 21.0; board_w = 17.5; board_h = 10.0;   // measured, to bezel base
 
 // THE CAMERA LOOKS THROUGH THE ARTWORK, and that is forced, not chosen:
 // swept over the whole board-reach window there is NO lens position with
@@ -199,21 +221,34 @@ mic3_xy = [25.6, 21.6];   //  8.43mm, sculpt gap 1.20
 // takes every port to 0.90mm of clear air.
 
 button_ang = 270;   // dead bottom: the only arc clearing the battery
-usbc_ang   = 300;
-sw_ang     = 240;
+usbc_ang   = 295;   // v9: at 300 the jack, now lying flat (10.5 wide), cut 1.4 into the 315 boss
+sw_ang     = 243;   // v9: at 240 the switch nut hit the 225 deg boss
 led_ang    = 110;   // top rim, between the two cord lugs
 
-// Cord lugs (v9). Eye centre sits lug_stand from the disc centre so the hole
-// clears the rim by 1.0; wall around the hole is lug_r - lug_hole_d/2 = 2.5.
-lug_ang    = [50, 130];
-lug_hole_d = 5.0;      // 3-4mm round leather cord, knotted
-lug_r      = 5.0;      // eye outer radius
-lug_w      = 8.0;      // width along the rim tangent
-lug_stand  = case_r + 3.5;
+// Cord ears (v9). A vertical cylinder either side of the top, full back_d
+// height, with the cord hole running along the rim tangent. The root is a
+// TRUE r=3 concave fillet made in 2D (offset out, then back in) before the
+// extrusion - the earlier hull-to-slab lug left a sharp internal corner at
+// the rim, which is exactly where a rigid resin starts a crack. Sized so
+// the cord is the fuse: 4mm leather breaks at 300-450N, the ear is good
+// for 600N at >= 3x on a 20MPa notched allowable.
+// 45/135: chord 55mm between holes, the root sits over the 45/135 boss
+// column inside the wall, and the 135 ear ends 14 deg clear of the LED.
+lug_ang    = [45, 135];
+lug_hole_d = 5.5;      // 3-4mm round leather cord; an overhand knot in
+                       // either will not pass it
+ear_d      = 11.0;     // 2.75 wall around the hole
+ear_stand  = 39.0;     // ear centre radius: inner edge at 33.5, clear of the
+                       // 33.2 cavity; hole inner edge at 36.25, 1.25 off the rim
+ear_fillet = 3.0;
 
 // spigot/groove register - v4 butted flat with 87.7mm of unsupported rim
-spig_or = 34.2; spig_ir = 33.4; spig_h = 1.0;
-spig_clr = 0.06;    // v9 resin: per side (FDM was 0.10); 0.12 diametral
+spig_or = 34.2; spig_ir = 33.2; spig_h = 1.0;   // v9: ir = inner_r. At 33.4 the groove
+                                                // left a 0.1 x 1.2 fin the wash would snap off.
+spig_clr = 0.15;    // per side, 0.3 diametral. MORE than FDM, not less: light
+                    // bleed narrows a 0.8 slot by 0.1-0.2, and a 0.2% cure
+                    // mismatch between two separately printed 68mm parts is
+                    // 0.14. The old 0.2 diametral went to zero.
 
 module disc(h)       { translate([cx,cy,0]) cylinder(r=case_r,  h=h); }
 // The corner wedge outside the fillet arc. Subtracting it from the disc
@@ -242,29 +277,57 @@ module led_pad(ang, dia, depth, zc) {
         rotate([0,0,ang]) rotate([0,90,0])
             translate([0,0,-depth]) cylinder(d=dia, h=depth);
 }
+// Starts 0.5 INSIDE the pad's inner face rather than on it. v5-v8 began the
+// pocket exactly at r=30.2, coincident with the pad face it opens onto, and
+// CGAL left 20 non-manifold edges around the mouth. Closed, but not clean.
 module led_pocket(ang, dia, depth, zc) {
     translate([cx+inner_r*cos(ang), cy+inner_r*sin(ang), zc])
         rotate([0,0,ang]) rotate([0,90,0])
-            translate([0,0,-3.0]) cylinder(d=dia, h=depth);
+            translate([0,0,-3.5]) cylinder(d=dia, h=depth+0.5);
 }
-// One cord lug: an eye whose axis is the rim tangent at `ang`, hulled to
-// a thin slab buried in the wall so it blends into the rim rather than
-// butting onto it. The slab is kept inside the wall (r 34.0..34.2) so the
-// hull never reaches the cavity. The hole is cut afterwards.
-module lug_eye(ang, rr, r, w) {
-    translate([cx + rr*cos(ang), cy + rr*sin(ang), back_d/2])
-        rotate([0,0,ang]) rotate([90,0,0]) cylinder(r=r, h=w, center=true);
-}
-module cord_lug(ang) {
-    hull() {
-        lug_eye(ang, lug_stand, lug_r, lug_w);
-        translate([cx + (case_r-0.9)*cos(ang), cy + (case_r-0.9)*sin(ang), back_d/2])
-            rotate([0,0,ang]) cube([0.2, lug_w, 2*lug_r], center=true);
+// The ears and their root fillets, as the part of the 2D outline that lies
+// OUTSIDE the disc. offset(+f) then offset(-f) rounds every concave corner
+// of the union to radius f and touches nothing else; subtracting the disc
+// leaves just the ears and the two webs at each root, all at r >= 35.
+module ears_2d() {
+    difference() {
+        offset(r=-ear_fillet) offset(r=ear_fillet) {
+            translate([cx,cy]) circle(r=case_r);
+            for (a = lug_ang)
+                translate([cx + ear_stand*cos(a), cy + ear_stand*sin(a)]) circle(d=ear_d);
+        }
+        translate([cx,cy]) circle(r=case_r-0.02);
     }
 }
-module cord_lug_hole(ang) {
-    translate([cx + lug_stand*cos(ang), cy + lug_stand*sin(ang), back_d/2])
-        rotate([0,0,ang]) rotate([90,0,0]) cylinder(d=lug_hole_d, h=lug_w+2, center=true);
+module ears() { linear_extrude(back_d) ears_2d(); }
+// Cord hole along the tangent, both mouths chamfered 1.0 x 45 so the cord
+// bends over an edge, not a corner.
+module ear_hole(ang) {
+    translate([cx + ear_stand*cos(ang), cy + ear_stand*sin(ang), back_d/2])
+        rotate([0,0,ang]) rotate([90,0,0]) {
+            cylinder(d=lug_hole_d, h=ear_d+2, center=true);
+            for (sgn=[-1,1]) mirror([0,0,sgn<0?1:0])
+                translate([0,0,ear_d/2-1.0]) cylinder(d1=lug_hole_d, d2=lug_hole_d+2.4, h=1.2);
+        }
+}
+// Chest-side round-over on the back shell's outer edge. Same construction
+// as the art face's rim fillet; applied to the disc only, before the ears
+// are added, so it never carves into an ear's foot.
+module edge_fillet_cut(r) {
+    translate([cx,cy,0]) rotate_extrude()
+        difference() {
+            translate([case_r - r, -1]) square([r + 2, r + 1]);
+            translate([case_r - r, r]) circle(r = r);
+        }
+}
+// Flat seat on the INSIDE of the rim for a panel-mount nut or flange. The
+// inner wall is a concave r=33.2 cylinder; a 14.4 nut across it has 0.75mm
+// of sagitta and bears on two edges. PETG yielded to that. Resin cracks.
+// The pad thickens the wall to pad_wall at the seat centre and presents a
+// plane; at the seat's edge the wall is still >= 1.8.
+module rim_pad(ang, w, h, zc, pw) {
+    translate([cx+(case_r-pw)*cos(ang), cy+(case_r-pw)*sin(ang), zc])
+        rotate([0,0,ang]) translate([0, -w/2, -h/2]) cube([pw+0.5, w, h]);
 }
 module rim_box(ang, w, h, depth, zc) {
     translate([cx+case_r*cos(ang), cy+case_r*sin(ang), zc])
@@ -308,15 +371,27 @@ module front_shell() {
             translate([cx,cy,front_d]) difference() {
                 cylinder(r=spig_or, h=spig_h);
                 translate([0,0,-0.5]) cylinder(r=spig_ir, h=spig_h+1);
+                // 0.3 x 45 lead-in on the outer edge: the tongue finds the
+                // rebate instead of catching its lip
+                translate([0,0,spig_h-0.3]) difference() {
+                    cylinder(r=spig_or+1, h=0.4);
+                    cylinder(r1=spig_or-0.3, r2=spig_or+0.1, h=0.4);
+                }
             }
             // camera seat: 9.2 square pocket wall so the module locates
             translate([cam_xy[0],cam_xy[1],wall-0.3])
                 difference() {
-                    cylinder(d=cam_lens_d+2*ring_wall+1.2, h=2.0+0.3);
-                    translate([0,0,-0.5]) cube([9.4,9.4,6], center=true);
+                    cylinder(d=15.0, h=2.0+0.3);   // v9: 9.0 pocket has a 6.36 half-diagonal;
+                                                    // the old 13.0 seat left 0.14 at the corners
+                    translate([0,0,-0.5]) cube([9.0,9.0,6], center=true);   // v9: 0.25/side, ~0.15 after bleed
                 }
         }
-        boss_positions() translate([0,0,wall+0.2]) cylinder(d=tap_pilot_d, h=front_d);
+        boss_positions() {
+            // hex pocket, open to the parting face. $fn=6 takes the
+            // circumscribed diameter: AF / cos(30)
+            translate([0,0,front_d-nut_pocket_h]) cylinder(d=nut_af/cos(30), h=nut_pocket_h+1, $fn=6);
+            translate([0,0,front_d-nut_pocket_h-nut_clear_h]) cylinder(d=nut_clear_d, h=nut_clear_h+0.1);
+        }
     }
 }
 
@@ -325,25 +400,40 @@ module front_shell() {
 // ---------------------------------------------------------------------
 module back_shell() {
     lip_h = 3.0;                       // was 2.0: retained only 32% of the cell
-    bx = cx - (batt_l+2*batt_clear)/2;
-    by = cy - (batt_w+2*batt_clear)/2;
+    lip_w = 1.0;                        // v9: was 0.6, brittle in resin
+    bx = cx - (batt_l+2*batt_clear)/2 - lip_w;   // pocket centred (v8 sat 0.6 off)
+    by = cy - (batt_w+2*batt_clear)/2 - lip_w;
     difference() {
         union() {
             difference() {
                 union() {
-                    disc(back_d);
-                    for (a = lug_ang) cord_lug(a);
+                    difference() {
+                        union() {
+                            difference() { disc(back_d); edge_fillet_cut(2.0); }   // v9: skin side
+                            ears();
+                        }
+                        translate([0,0,wall]) disc_inner(back_d);
+                    }
+                    // seats AFTER the cavity cut, BEFORE the control cuts
+                    // wall at the seat's edge = case_r - hypot(case_r-pw, w/2):
+                    //   button 15 wide, pw 2.8 -> 1.94   usbc 18, 3.2 -> 1.95
+                    //   switch 10, 2.6 -> 2.22. A 17-wide button seat at 2.6
+                    //   thinned the edge to 1.50.
+                    rim_pad(button_ang, 15.0, 14.0, back_d/2, 2.8);
+                    rim_pad(usbc_ang,   18.0, 14.0, back_d/2, 3.2);   // flange ~17.5, still unmeasured
+                    rim_pad(sw_ang,     10.0, 14.0, back_d/2, 2.6);
                 }
-                translate([0,0,wall]) disc_inner(back_d);
                 // register groove, 0.2 diametral clearance on the spigot
-                translate([cx,cy,back_d-spig_h-0.1]) difference() {
-                    cylinder(r=spig_or+spig_clr, h=spig_h+0.2);
-                    translate([0,0,-0.5]) cylinder(r=spig_ir-spig_clr, h=spig_h+1.2);
+                translate([cx,cy,back_d-spig_h-0.2]) difference() {
+                    cylinder(r=spig_or+spig_clr, h=spig_h+0.3);
+                    translate([0,0,-0.5]) cylinder(r=spig_ir-spig_clr, h=spig_h+1.3);
                 }
-                for (a = lug_ang) cord_lug_hole(a);
+                for (a = lug_ang) ear_hole(a);
                 // rim controls
                 rim_cyl(button_ang, button_hole_d, button_depth+2, back_d/2);
-                rim_box (usbc_ang,  usbc_w, usbc_h, usbc_depth,   back_d/2);
+                // v9: w along the rim, h vertical - the jack lies flat. rim_box's
+                // first size runs along Z, so the args are swapped here on purpose.
+                rim_box (usbc_ang,  usbc_h, usbc_w, usbc_depth,   back_d/2);
                 rim_cyl (sw_ang,    sw_d,   sw_depth,             back_d/2);
                 rim_cyl (led_ang,   led_window_d, 6.0,            back_d/2);
             }
@@ -351,9 +441,14 @@ module back_shell() {
                 cylinder(d=boss_od, h=back_d-wall+0.3);
             // battery bay: real clearance, taller lip, wire-exit notch
             translate([bx,by,wall-0.3]) difference() {
-                cube([batt_l+2*batt_clear+1.2, batt_w+2*batt_clear+1.2, lip_h+0.3]);
-                translate([0.6,0.6,-1]) cube([batt_l+2*batt_clear, batt_w+2*batt_clear, lip_h+2]);
-                translate([-1, (batt_w+2*batt_clear+1.2)/2-3.5, -1]) cube([3, 7, lip_h+2]);
+                cube([batt_l+2*batt_clear+2*lip_w, batt_w+2*batt_clear+2*lip_w, lip_h+0.3]);
+                translate([lip_w,lip_w,-1]) cube([batt_l+2*batt_clear, batt_w+2*batt_clear, lip_h+2]);
+                // wire-exit notch, left end
+                translate([-1, (batt_w+2*batt_clear+2*lip_w)/2-3.5, -1]) cube([3, 7, lip_h+2]);
+                // button notch, bottom wall: the 12.25 body at 270 deg reaches
+                // r=17.8 from its seat, the lip spans r 17.85-18.85. 14 wide
+                // leaves 19.5 of wall either side; the cell is 51 long.
+                translate([(batt_l+2*batt_clear+2*lip_w)/2-7.0, -1, -1]) cube([14, lip_w+2, lip_h+2]);
             }
             // LED seat: a RADIAL pad on the inner wall, so the 10mm disc
             // mounts flat facing outward at the top rim port. Placed on the
@@ -363,9 +458,9 @@ module back_shell() {
         // insert bores + screw clearance from the back exterior
         boss_positions() {
             translate([0,0,-1]) cylinder(d=screw_clear_d, h=back_d+2);
-            translate([0,0,-0.01]) cylinder(d=screw_head_d, h=1.4);   // cap-head counterbore
+            translate([0,0,-0.01]) cylinder(d=screw_head_d, h=screw_cbore_h);
         }
-        led_pocket(led_ang, led_disc_d+0.6, 1.8, back_d/2);
+        led_pocket(led_ang, led_disc_d+0.3, 1.8, back_d/2);   // v9 resin
         rim_cyl(led_ang, led_window_d, 6.0, back_d/2);
     }
 }
@@ -400,7 +495,15 @@ else if (part=="kraken_body")    mirror([0,0,1]) kraken_body();
 else if (part=="kraken_accents") mirror([0,0,1]) kraken_accents();
 else if (part=="assembled") {
     color("gainsboro") front_shell();
-    color("indianred") kraken_body();
-    color("gainsboro") kraken_accents();     // same material as the shell
+    color("indianred") kraken();
+    color("slategray") translate([0,0,front_d+back_d]) mirror([0,0,1]) back_shell();
+    // ghost stack, in assembled coordinates (face at z=0, back floor at
+    // front_d+back_d-wall). Cell against the back floor, board on the cell,
+    // bezel reaching into the front cavity. The board spans the parting plane.
+    zb = front_d + back_d - wall;                     // back floor inner face
+    %translate([cx-batt_l/2, cy-batt_w/2, zb-batt_t]) cube([batt_l, batt_w, batt_t]);
+    %translate([board_xy[0]-board_l/2, board_xy[1]-board_w/2, zb-batt_t-0.5-0.6-board_h])
+        cube([board_l, board_w, board_h]);
+    %translate([cam_xy[0]-4.25, cam_xy[1]-4.25, zb-batt_t-0.5-0.6-board_h-2.5]) cube([8.5, 8.5, 2.5]);
 }
 else { front_shell(); translate([2*case_r+12,0,0]) back_shell(); }

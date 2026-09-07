@@ -6,10 +6,11 @@ one thing — but the pouch is the one to build first.
 | | [`medallion/`](medallion/) | [`pouch/`](pouch/) |
 |---|---|---|
 | What | 3D-printed disc case, kraken relief | Sewn leather-and-jersey pouch |
-| Size | Ø70 × 29.1 mm | 78 × 62 × 24 mm |
-| Made with | FDM or resin, MMU for the two-material relief | Singer CG590, ~3 h for the first unit |
-| Access to the cell | 4 × M2 into heat-set inserts | Flap and a snap |
+| Size | Ø70 × 29.4 mm, 63 across the ears | 78 × 62 × 24 mm |
+| Made with | Halot-Mage 8K resin (v9); FDM with MMU still supported | Singer CG590, ~3 h for the first unit |
+| Access to the cell | 4 × M2 into captured nuts | Flap and a snap |
 | Mic mounting | Gasketed to a rigid faceplate | Ports through leather, mesh-backed |
+| Cord | two ears, 55 mm apart | two D-ring tabs |
 | Mic spread | 18.8 / 20.2 / 29.2 mm | 46 / 37 / 37 mm |
 
 **Build the pouch first.** It gets the thing on your chest in an evening,
