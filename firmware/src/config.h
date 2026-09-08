@@ -133,10 +133,14 @@ typedef enum {
 #define STATUS_REPORT_INTERVAL_MS 120000 // 2 minutes (was 30 seconds)
 
 // =============================================================================
-// MICROPHONE CONFIGURATION - INMP441 I2S array (belt-worn build)
+// MICROPHONE CONFIGURATION - INMP441 I2S array (chest-worn pendant)
 // =============================================================================
-// Bus 0 carries the two case mics; bus 1 carries the rear case mic (left slot)
-// and the detachable lapel pod (right slot).
+// Three mics on the front face of the pendant, named A, B, C. Which physical
+// port is which is an assembly choice recorded in the enclosure's README
+// (hardware/medallion, hardware/pouch); the firmware only needs the names
+// to be consistent with the L/R wiring below. Bus 0 carries A (left slot)
+// and B (right slot); bus 1 carries C (left slot) and the detachable lapel
+// pod (right slot).
 // Bus 0 avoids GPIO7/8/9 (hardwired to the Sense board's microSD) and uses
 // GPIO43/44, the old UART pins - free here because the console runs over
 // native USB (ARDUINO_USB_CDC_ON_BOOT, stated explicitly in platformio.ini).
@@ -144,9 +148,9 @@ typedef enum {
 #define MIC_BUS0_SCK_PIN 6  // XIAO D5 - case pair bit clock
 #define MIC_BUS0_WS_PIN 43  // XIAO D6 - case pair word select
 #define MIC_BUS0_SD_PIN 44  // XIAO D7 - case pair data (A: L/R->GND, B: L/R->3V3)
-#define MIC_BUS1_SCK_PIN 3 // XIAO D2 - rear/lapel bit clock
-#define MIC_BUS1_WS_PIN 4  // XIAO D3 - rear/lapel word select
-#define MIC_BUS1_SD_PIN 5  // XIAO D4 - rear/lapel data (C: L/R->GND, lapel D: L/R->3V3)
+#define MIC_BUS1_SCK_PIN 3 // XIAO D2 - C/lapel bit clock
+#define MIC_BUS1_WS_PIN 4  // XIAO D3 - C/lapel word select
+#define MIC_BUS1_SD_PIN 5  // XIAO D4 - C/lapel data (C: L/R->GND, lapel D: L/R->3V3)
 
 // Phase 1 ships without the lapel pod: the connector and firmware path are
 // provisioned, the mic is not fitted. Set to 1 once the pod exists.
@@ -156,15 +160,32 @@ typedef enum {
 
 #define MIC_SAMPLE_RATE 16000          // 16kHz sample rate
 #define MIC_BUFFER_SAMPLES 1600        // 100ms block (16000 * 0.1)
-#define MIC_BIT_SHIFT 14               // 32-bit slot -> int16 (24-bit data MSB-aligned; 14 = ~4x gain vs >>16)
+// 32-bit slot -> int16. The INMP441 puts 24 bits MSB-aligned in the slot, so
+// >>16 keeps the top 16 bits exactly: full scale clips at the mic's own
+// 120 dB SPL acoustic overload and nothing is lost below it, because the
+// int16 quantisation floor (-98 dBFS) sits under the mic's self-noise
+// (-87 dBFS). The old >>14 traded 12 dB of clip headroom (a shout, a door)
+// for a 4x louder stream that no downstream consumer needed - ASR and
+// speaker models normalise level. Lower it only if the phone app's live
+// audio is unusably quiet, and then rescale every level threshold below.
+// Rule of thumb at >>16, speech mean-abs per 100 ms block:
+//   ~1.5 quiet room (40 dB SPL)   ~15 partner at 1 m (60 dB)
+//   ~40 own voice at the chest (~68 dB)   ~750 at 94 dB SPL
+#define MIC_BIT_SHIFT 16
 #define MIC_GAIN 1                     // Extra multiplier after the shift (tune if quiet)
+// First-order high-pass on every channel before the level metric and before
+// the stream leaves the device. Clothing rub, body movement and wind live
+// below 100 Hz and used to steer the source selector and eat Opus bits.
+// 0 disables.
+#define MIC_HIGHPASS_HZ 110
 #define MIC_BUS0_SWAP_LR 0             // Set 1 if A/B appear swapped in the serial logs
 #define MIC_BUS1_SWAP_LR 0             // Set 1 if C/lapel appear swapped in the serial logs
 #define AUDIO_RING_BUFFER_SAMPLES 8000 // 500ms of audio data
 
 // Source selection: lapel wins while it carries signal; otherwise the loudest
 // case mic wins, with hysteresis so speech pauses don't cause flapping.
-#define MIC_LAPEL_PRESENT_LEVEL 40 // Mean-abs level that marks the lapel "live"
+// Levels are post-shift mean-abs per block (see MIC_BIT_SHIFT).
+#define MIC_LAPEL_PRESENT_LEVEL 10 // Mean-abs level that marks the lapel "live" (~57 dB SPL)
 #define MIC_LAPEL_HOLD_MS 5000     // Keep lapel selected this long after last signal
 #define MIC_SWITCH_RATIO_NUM 3     // Challenger must exceed incumbent by 3/2
 #define MIC_SWITCH_RATIO_DEN 2
@@ -173,8 +194,53 @@ typedef enum {
 // splices two different room responses together: a broadband click that reads
 // as a plosive, and a discontinuity that corrupts speaker embeddings. Below
 // this level nobody is talking, so a changeover costs nothing.
-#define MIC_SWITCH_SILENCE_LEVEL 60
+#define MIC_SWITCH_SILENCE_LEVEL 8  // ~55 dB SPL: room noise passes, a partner at 1 m does not
 #define MIC_STATS_INTERVAL_MS 10000 // Periodic level log for source analysis
+
+// =============================================================================
+// OWN-VOICE GATE + DEVICE-TIER NEW-VOICE DETECTOR (docs/SPEC.md 2.1)
+// =============================================================================
+// Runs on the selected mono block every 100 ms (voice_dsp.h, voice_logic.h).
+// The gate is level-first: the wearer's mouth is ~25 cm from the pendant and
+// nobody else is closer than ~50 cm, so own voice is 6-12 dB louder than any
+// partner at equal effort. Calibrate on the bench from the VOICE: serial
+// line - talk normally, then have someone talk to you from 0.5 m and 1 m -
+// and put VOICE_OWN_LEVEL between the two.
+#define VOICE_SPEECH_RATIO 3.0f        // speech when level > noise floor x this ...
+#define VOICE_SPEECH_MIN_LEVEL 6.0f    // ... and above this (~53 dB SPL)
+#define VOICE_OWN_LEVEL 30.0f          // OWN above this (~66 dB SPL at the chest)
+// Tilt veto: own voice reaches the pendant off-axis and through the body, so
+// it is darker (more 250-500 Hz, less 2-4 kHz) than a partner facing the
+// mic. It depends on the enclosure, so it ships DISABLED. Read the tilt
+// column of the VOICE: line for both cases and set this between them; a loud
+// partner at 0.5 m then stays OTHER.
+#define VOICE_OWN_TILT_MIN_DB (-1e9f)
+#define VOICE_HANGOVER_MS 300          // a state outlives its last qualifying block by this
+#define VOICE_FLOOR_RISE 1.005f        // floor climbs ~0.4 dB/s while everything is louder
+#define VOICE_FLOOR_FALL 0.5f          // ... and halves the gap to any quieter block at once
+// Novelty: a segment of OTHER speech is scored once, against a four-entry
+// gallery of voices heard recently. Coarse by design - it is the fallback
+// tier, and a candidate only arms a hold-off that a remote verdict overrides.
+// The distance default comes from synthetic voices (test_voice.cpp): two
+// partners with different pitch and slope sit ~4.7 dB apart, the same voice
+// re-heard ~0.2 dB. Real same-speaker variation across 1.5 s segments will be
+// larger than 0.2 dB. Every scored segment prints its distance on the VOICE:
+// line; after a day of wearing it, put this between the two clusters you see.
+#define NOVELTY_MIN_BLOCKS 15          // 1.5 s of OTHER speech before scoring
+#define NOVELTY_SEGMENT_GAP_MS 1500    // silence (or the wearer) this long ends a segment
+#define NOVELTY_DIST_DB 3.0f           // RMS five-band distance that counts as a new voice
+#define NOVELTY_FORGET_MS (10UL * 60UL * 1000UL) // a voice unheard this long is new again
+
+// =============================================================================
+// THERMAL - a throttle and a timeline record, NOT a charge gate (thermal.h)
+// =============================================================================
+// The BQ25101 on the XIAO has no NTC and no reachable enable pin, so the
+// cell charges at any temperature. What firmware can do is stop adding heat
+// and log the excursion. Thresholds are on the S3 die, 10-20 C above the
+// cell under load; check the offset once with a thermocouple on the cell.
+#define THERMAL_WARM_C 60.0f           // bursts pause
+#define THERMAL_HOT_C 70.0f            // video session stops, CPU to its floor
+#define THERMAL_HYST_C 5.0f
 
 // =============================================================================
 // CASE UI - button + WS2812 RGB LED (shared pin with battery divider)

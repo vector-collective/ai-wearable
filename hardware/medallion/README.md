@@ -146,6 +146,10 @@ clearance as a hard constraint.
 Mic spread 18.8 / 20.2 / 29.2mm. Controls on the rim: button 270°, USB-C
 295°, switch 243°, LED 110°.
 
+Firmware names (`firmware/src/config.h`): **mic1 = A**, **mic2 = B**,
+**mic3 = C**. A and C tie L/R to GND, B to 3V3; A is the port nearest the
+cord ears, so nearest the mouth.
+
 The camera looks through the artwork, and that is forced: swept over the whole
 board-reach window there is no lens position with 4.5mm of clear sculpt, so a
 9.4mm bore 3.27mm deep passes through the relief. With the 1.8mm wall that is a

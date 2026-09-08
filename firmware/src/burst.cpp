@@ -9,6 +9,7 @@
 #include "sd_recorder.h"
 
 static burst_policy_t policy;
+static bool thermal_hold = false;
 static const burst_cfg_t cfg = {
     BURST_SUPPRESS_MS, BURST_MIN_GAP_MS, BURST_HOLDOFF_MS, BURST_DAY_MS, BURST_DAILY_CAP,
 };
@@ -34,6 +35,10 @@ static uint16_t le16(const uint8_t *p)
 
 static void start_burst(uint8_t count, uint16_t interval_ms, uint8_t src, uint32_t hint)
 {
+    if (thermal_hold) {
+        Serial.println("BURST: refused, thermal hold");
+        return;
+    }
     app_register_activity();
     if (sd_recorder_burst(count, interval_ms, src, hint)) {
         Serial.printf("BURST: start src=%u hint=%lu count=%u interval=%u\n", src, (unsigned long) hint, count,
@@ -56,10 +61,31 @@ void burst_loop(uint32_t now)
     }
 }
 
-void burst_local_candidate(uint32_t hint)
+void burst_local_candidate(uint32_t hint, int16_t score)
 {
+    if (thermal_hold) {
+        return;
+    }
     if (burst_policy_local_candidate(&policy, &cfg, millis(), hint)) {
-        Serial.printf("BURST: local candidate hint=%lu, hold-off armed\n", (unsigned long) hint);
+        // On the timeline so a day of wearing shows which candidates the
+        // remote tiers confirmed, which they cancelled, and which fired on
+        // the device's own authority - the data for tuning NOVELTY_DIST_DB.
+        events_logf(EV_CANDIDATE, "hint=%lu score=%d", (unsigned long) hint, (int) score);
+        Serial.printf("BURST: local candidate hint=%lu score=%d, hold-off armed\n", (unsigned long) hint, (int) score);
+    }
+}
+
+void burst_set_hold(bool hold)
+{
+    if (hold == thermal_hold) {
+        return;
+    }
+    thermal_hold = hold;
+    if (hold) {
+        // Disarm anything pending and stop a burst in flight: the camera is
+        // the biggest heat source we control.
+        policy.armed = false;
+        sd_recorder_burst_cancel();
     }
 }
 

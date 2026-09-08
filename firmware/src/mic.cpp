@@ -4,13 +4,17 @@
 #include <driver/i2s.h>
 
 #include "config.h"
+#include "voice_dsp.h"
+#include "voice_logic.h"
 
 // INMP441 capture: two standard-mode I2S buses, stereo each.
-//   Bus 0 (I2S_NUM_0): case pair   -> A = left (L/R sel -> GND), B = right (L/R sel -> 3V3)
-//   Bus 1 (I2S_NUM_1): rear/lapel  -> C = left (L/R sel -> GND), D = lapel, right (L/R sel -> 3V3)
-// All share the 16 kHz clock domain. Each block we measure per-channel level,
-// pick one source and hand a mono block to the unchanged Opus/BLE pipeline via
-// the existing callback.
+//   Bus 0 (I2S_NUM_0): A = left (L/R sel -> GND), B = right (L/R sel -> 3V3)
+//   Bus 1 (I2S_NUM_1): C = left (L/R sel -> GND), lapel = right (L/R sel -> 3V3)
+// All share the 16 kHz clock domain. Each 100 ms block, every channel that
+// is present is converted to int16 and high-passed; we measure per-channel
+// level, pick one source and hand its block to the unchanged Opus/BLE
+// pipeline via the callback. The selected block also feeds the own-voice
+// gate and the device-tier new-voice detector (voice_logic.h).
 //
 // Selection order: the lapel wins while it carries signal (when MIC_LAPEL_FITTED),
 // otherwise the loudest case mic wins - but a case changeover is only permitted
@@ -21,23 +25,42 @@
 #define MIC_FRAME_BYTES (2 * sizeof(int32_t)) // one stereo frame, 32-bit slots
 
 enum mic_source { SRC_CASE_A = 0, SRC_CASE_B = 1, SRC_CASE_C = 2, SRC_LAPEL = 3 };
-static const char *SRC_NAMES[] = {"CASE_A(front-up)", "CASE_B(out-up)", "CASE_C(rear)", "LAPEL"};
+static const char *SRC_NAMES[] = {"A", "B", "C", "LAPEL"};
+static const char *VOICE_NAMES[] = {"silence", "own", "other"};
 
 // Static variables
 static volatile bool mic_running = false;
 static bool bus1_ok = false;
 static mic_data_handler audio_callback = nullptr;
+static mic_voice_handler voice_callback = nullptr;
 static int32_t *bus0_buffer = nullptr;
 static int32_t *bus1_buffer = nullptr;
+static int16_t *chan_buffer[4] = {nullptr, nullptr, nullptr, nullptr}; // converted + high-passed
 static int16_t *mono_buffer = nullptr;
 
 // Source-selection state
 static int active_case = SRC_CASE_A;
 static int candidate_case = SRC_CASE_A;
 static int candidate_streak = 0;
+#if MIC_LAPEL_FITTED
 static uint32_t lapel_hold_until = 0;
+#endif
 static int last_logged_source = -1;
 static uint32_t last_stats_ms = 0;
+
+// Per-channel high-pass and the voice path
+static hp1_t hp[4];
+static voice_feat_state_t feat_state;
+static voice_feat_t last_feat;
+static voice_gate_t gate;
+static novelty_t novelty;
+static const voice_gate_cfg_t gate_cfg = {
+    VOICE_SPEECH_RATIO, VOICE_SPEECH_MIN_LEVEL, VOICE_OWN_LEVEL, VOICE_OWN_TILT_MIN_DB,
+    VOICE_HANGOVER_MS,  VOICE_FLOOR_RISE,       VOICE_FLOOR_FALL,
+};
+static const novelty_cfg_t novelty_cfg = {
+    NOVELTY_MIN_BLOCKS, NOVELTY_SEGMENT_GAP_MS, NOVELTY_DIST_DB, NOVELTY_FORGET_MS,
+};
 
 static void *mic_alloc(size_t bytes)
 {
@@ -98,12 +121,13 @@ bool mic_start()
         return true;
     }
 
-    Serial.println("Initializing quad INMP441 I2S capture...");
-    Serial.printf("  Bus0 (case A/B): SCK=GPIO%d WS=GPIO%d SD=GPIO%d\n", MIC_BUS0_SCK_PIN, MIC_BUS0_WS_PIN,
+    Serial.println("Initializing INMP441 I2S capture...");
+    Serial.printf("  Bus0 (A/B): SCK=GPIO%d WS=GPIO%d SD=GPIO%d\n", MIC_BUS0_SCK_PIN, MIC_BUS0_WS_PIN,
                   MIC_BUS0_SD_PIN);
-    Serial.printf("  Bus1 (rear C / lapel D): SCK=GPIO%d WS=GPIO%d SD=GPIO%d\n", MIC_BUS1_SCK_PIN, MIC_BUS1_WS_PIN,
+    Serial.printf("  Bus1 (C / lapel): SCK=GPIO%d WS=GPIO%d SD=GPIO%d\n", MIC_BUS1_SCK_PIN, MIC_BUS1_WS_PIN,
                   MIC_BUS1_SD_PIN);
-    Serial.printf("  Sample Rate: %d Hz, bit shift: %d\n", MIC_SAMPLE_RATE, MIC_BIT_SHIFT);
+    Serial.printf("  Sample Rate: %d Hz, bit shift: %d, high-pass: %d Hz\n", MIC_SAMPLE_RATE, MIC_BIT_SHIFT,
+                  MIC_HIGHPASS_HZ);
 
     if (bus0_buffer == nullptr) {
         bus0_buffer = (int32_t *) mic_alloc(MIC_BUFFER_SAMPLES * MIC_FRAME_BYTES);
@@ -114,10 +138,26 @@ bool mic_start()
     if (mono_buffer == nullptr) {
         mono_buffer = (int16_t *) mic_alloc(MIC_BUFFER_SAMPLES * sizeof(int16_t));
     }
-    if (bus0_buffer == nullptr || bus1_buffer == nullptr || mono_buffer == nullptr) {
+    int n_chan = MIC_LAPEL_FITTED ? 4 : 3;
+    bool alloc_ok = bus0_buffer != nullptr && bus1_buffer != nullptr && mono_buffer != nullptr;
+    for (int ch = 0; ch < n_chan; ch++) {
+        if (chan_buffer[ch] == nullptr) {
+            chan_buffer[ch] = (int16_t *) mic_alloc(MIC_BUFFER_SAMPLES * sizeof(int16_t));
+        }
+        alloc_ok = alloc_ok && chan_buffer[ch] != nullptr;
+    }
+    if (!alloc_ok) {
         Serial.println("Failed to allocate mic buffers!");
         return false;
     }
+
+    for (int ch = 0; ch < 4; ch++) {
+        hp1_init(&hp[ch], (float) MIC_HIGHPASS_HZ, (float) MIC_SAMPLE_RATE);
+    }
+    voice_feat_init(&feat_state, (float) MIC_SAMPLE_RATE);
+    voice_gate_init(&gate);
+    novelty_init(&novelty);
+    memset(&last_feat, 0, sizeof(last_feat));
 
     if (!install_bus(I2S_NUM_0, MIC_BUS0_SCK_PIN, MIC_BUS0_WS_PIN, MIC_BUS0_SD_PIN)) {
         return false;
@@ -129,7 +169,7 @@ bool mic_start()
         // silence when no lapel is plugged in, giving clean presence detection.
         gpio_set_pull_mode((gpio_num_t) MIC_BUS1_SD_PIN, GPIO_PULLDOWN_ONLY);
     } else {
-        Serial.println("Bus1 unavailable - continuing with case pair only");
+        Serial.println("Bus1 unavailable - continuing with A/B only");
     }
 
     mic_running = true;
@@ -167,15 +207,38 @@ void mic_set_callback(mic_data_handler callback)
     audio_callback = callback;
 }
 
-// Convert one 32-bit I2S slot (24-bit INMP441 data, MSB-aligned) to int16 with gain.
-static inline int16_t slot_to_s16(int32_t raw)
+void mic_set_voice_callback(mic_voice_handler callback)
 {
-    int32_t s = (raw >> MIC_BIT_SHIFT) * MIC_GAIN;
-    if (s > 32767)
-        s = 32767;
-    if (s < -32768)
-        s = -32768;
-    return (int16_t) s;
+    voice_callback = callback;
+}
+
+int mic_voice_state()
+{
+    return gate.state;
+}
+
+// Convert one channel of a stereo 32-bit block to high-passed int16, and
+// return its mean-abs level. The INMP441's 24 bits sit MSB-aligned in the
+// slot; the shift keeps the top bits (see MIC_BIT_SHIFT in config.h).
+static uint32_t convert_channel(int ch, const int32_t *stereo, int slot, size_t frames)
+{
+    hp1_t *f = &hp[ch];
+    int16_t *out = chan_buffer[ch];
+    float acc = 0.0f;
+    for (size_t i = 0; i < frames; i++) {
+        float s = (float) (stereo[2 * i + slot] >> MIC_BIT_SHIFT) * (float) MIC_GAIN;
+        s = hp1_step(f, s);
+        if (s > 32767.0f) {
+            s = 32767.0f;
+        } else if (s < -32768.0f) {
+            s = -32768.0f;
+        }
+        // round, not truncate: a signal a hair under 1 LSB must not vanish
+        int16_t v = (int16_t) (s >= 0.0f ? s + 0.5f : s - 0.5f);
+        out[i] = v;
+        acc += (v < 0) ? (float) -v : (float) v;
+    }
+    return (uint32_t) (acc / (float) frames);
 }
 
 void mic_process()
@@ -202,34 +265,25 @@ void mic_process()
         bus1_valid = (err1 == ESP_OK) && ((bytes1 / MIC_FRAME_BYTES) >= frames);
     }
 
-    // Per-channel mean absolute level over this block.
-    // Interleave order: [ch0, ch1] per frame; swap flags fix L/R if a board
-    // revision or driver version delivers them reversed.
-    uint64_t acc[4] = {0, 0, 0, 0};
-    for (size_t i = 0; i < frames; i++) {
-        int16_t a = slot_to_s16(bus0_buffer[2 * i + (MIC_BUS0_SWAP_LR ? 1 : 0)]);
-        int16_t b = slot_to_s16(bus0_buffer[2 * i + (MIC_BUS0_SWAP_LR ? 0 : 1)]);
-        acc[SRC_CASE_A] += (a < 0) ? -a : a;
-        acc[SRC_CASE_B] += (b < 0) ? -b : b;
-        if (bus1_valid) {
-            int16_t c = slot_to_s16(bus1_buffer[2 * i + (MIC_BUS1_SWAP_LR ? 1 : 0)]);
-            acc[SRC_CASE_C] += (c < 0) ? -c : c;
+    // Convert and high-pass every channel present this block, measuring
+    // each one's mean-abs level. Interleave order is [ch0, ch1] per frame;
+    // the swap flags fix L/R if a board revision or driver version delivers
+    // them reversed.
+    uint32_t level[4] = {0, 0, 0, 0};
+    level[SRC_CASE_A] = convert_channel(SRC_CASE_A, bus0_buffer, MIC_BUS0_SWAP_LR ? 1 : 0, frames);
+    level[SRC_CASE_B] = convert_channel(SRC_CASE_B, bus0_buffer, MIC_BUS0_SWAP_LR ? 0 : 1, frames);
+    if (bus1_valid) {
+        level[SRC_CASE_C] = convert_channel(SRC_CASE_C, bus1_buffer, MIC_BUS1_SWAP_LR ? 1 : 0, frames);
 #if MIC_LAPEL_FITTED
-            int16_t d = slot_to_s16(bus1_buffer[2 * i + (MIC_BUS1_SWAP_LR ? 0 : 1)]);
-            acc[SRC_LAPEL] += (d < 0) ? -d : d;
+        level[SRC_LAPEL] = convert_channel(SRC_LAPEL, bus1_buffer, MIC_BUS1_SWAP_LR ? 0 : 1, frames);
 #endif
-        }
-    }
-    uint32_t level[4];
-    for (int ch = 0; ch < 4; ch++) {
-        level[ch] = (uint32_t) (acc[ch] / frames);
     }
 
     uint32_t now = millis();
 
 #if MIC_LAPEL_FITTED
-    // Lapel presence: recent signal on channel D holds the lapel active so
-    // natural pauses in speech don't bounce the source around.
+    // Lapel presence: recent signal on the lapel channel holds the lapel
+    // active so natural pauses in speech don't bounce the source around.
     if (bus1_valid && level[SRC_LAPEL] > MIC_LAPEL_PRESENT_LEVEL) {
         lapel_hold_until = now + MIC_LAPEL_HOLD_MS;
     }
@@ -240,8 +294,8 @@ void mic_process()
     const bool lapel_active = false;
 #endif
 
-    // If bus 1 dropped out this block, the rear mic's samples are stale -
-    // never emit them, and re-home the incumbent onto a bus 0 channel.
+    // If bus 1 dropped out this block, C's samples are stale - never emit
+    // them, and re-home the incumbent onto a bus 0 channel.
     if (!bus1_valid && active_case == SRC_CASE_C) {
         active_case = (level[SRC_CASE_B] > level[SRC_CASE_A]) ? SRC_CASE_B : SRC_CASE_A;
         candidate_streak = 0;
@@ -283,6 +337,25 @@ void mic_process()
 
     int source = lapel_active ? SRC_LAPEL : active_case;
 
+    // Emit the selected channel as the mono stream.
+    memcpy(mono_buffer, chan_buffer[source], frames * sizeof(int16_t));
+
+    // Who is talking, and is it anyone new. Runs on the stream that leaves
+    // the device, so it sees exactly what the pipeline will.
+    voice_feat_block(&feat_state, mono_buffer, frames, &last_feat);
+    int vstate = voice_gate_step(&gate, &gate_cfg, now, &last_feat);
+    bool scored_before = novelty.seg_scored;
+    if (novelty_step(&novelty, &novelty_cfg, now, vstate, gate.speech, &last_feat)) {
+        int16_t arg = (novelty.last_dist < 0.0f) ? -10 : (int16_t) (novelty.last_dist * 10.0f + 0.5f);
+        Serial.printf("VOICE: new-voice candidate dist=%.1f slot=%d live=%d\n", novelty.last_dist, novelty.last_match,
+                      novelty_live_count(&novelty, &novelty_cfg, now));
+        if (voice_callback != nullptr) {
+            voice_callback(MIC_VOICE_CANDIDATE, arg);
+        }
+    } else if (!scored_before && novelty.seg_scored) {
+        Serial.printf("VOICE: segment matched slot %d dist=%.1f\n", novelty.last_match, novelty.last_dist);
+    }
+
     if (source != last_logged_source) {
 #if MIC_LAPEL_FITTED
         Serial.printf("MIC: source -> %s (levels A=%u B=%u C=%u D=%u)\n", SRC_NAMES[source], level[0], level[1],
@@ -299,16 +372,14 @@ void mic_process()
 #else
         Serial.printf("MIC: levels A=%u B=%u C=%u active=%s\n", level[0], level[1], level[2], SRC_NAMES[source]);
 #endif
+        // The calibration line: read level and tilt while you talk, then
+        // while someone talks to you, and set VOICE_OWN_LEVEL / _TILT_MIN_DB
+        // between them (config.h).
+        Serial.printf("VOICE: %s level=%.0f floor=%.1f tilt=%+.1f bands=%.0f/%.0f/%.0f/%.0f/%.0f known=%d\n",
+                      VOICE_NAMES[vstate], last_feat.level, gate.floor, gate.tilt_avg, last_feat.band_db[0],
+                      last_feat.band_db[1], last_feat.band_db[2], last_feat.band_db[3], last_feat.band_db[4],
+                      novelty_live_count(&novelty, &novelty_cfg, now));
         last_stats_ms = now;
-    }
-
-    // Emit the selected channel as the mono stream.
-    int32_t *src_buf = (source == SRC_CASE_A || source == SRC_CASE_B) ? bus0_buffer : bus1_buffer;
-    int swap = (src_buf == bus0_buffer) ? MIC_BUS0_SWAP_LR : MIC_BUS1_SWAP_LR;
-    int right_slot = (source == SRC_CASE_B || source == SRC_LAPEL) ? 1 : 0;
-    int slot = swap ? (1 - right_slot) : right_slot;
-    for (size_t i = 0; i < frames; i++) {
-        mono_buffer[i] = slot_to_s16(src_buf[2 * i + slot]);
     }
 
     if (audio_callback != nullptr) {

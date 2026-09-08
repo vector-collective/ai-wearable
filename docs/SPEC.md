@@ -77,6 +77,21 @@ threshold lives on the phone. Remote tiers may also send an *unsolicited* new
 verdict (the device's detector missed it); that fires directly, subject to the
 same suppression.
 
+**The device tier** (`voice_dsp.h`, `voice_logic.h`, wired in `mic.cpp`):
+every 100 ms block of the selected mono stream is high-passed at 110 Hz and
+run through a five-band octave filterbank. An *own-voice gate* labels the
+block silence / own / other, level-first — the wearer's mouth is a fixed
+~25 cm away and everyone else is at least twice that, so own voice is 6–12 dB
+louder at equal effort; a spectral-tilt veto exists for the loud close
+partner but depends on the enclosure and ships disabled. Segments of *other*
+speech (≥ 1.5 s) are averaged into a level-free band profile and compared
+against a four-entry gallery of voices heard in the last ten minutes; no
+match within `NOVELTY_DIST_DB` is a candidate, which arms the hold-off and
+writes a `candidate` row with its score. It is coarse on purpose: it cannot
+separate similar voices and does not try to. Its thresholds are calibrated
+from the `VOICE:` serial line and a day of `candidate` rows
+(`firmware/README.md`).
+
 ### 2.2 Burst suppression
 
 Diarization clusters wobble. Without suppression the same person triggers
@@ -125,7 +140,7 @@ CAPTURE_CTRL ops, all little-endian:
 | `0x01` | VERDICT_NEW | `u8 src, u32 hint` | remote says a new voice: fire (subject to §2.2), cancel hold-off |
 | `0x02` | VERDICT_KNOWN | `u8 src, u32 hint` | remote says known voice: cancel hold-off, no burst |
 | `0x03` | BURST_FORCE | `u8 count, u16 interval_ms` | manual burst; bypasses everything except quiet mode |
-| `0x04` | QUIET_ON | — | stop bursts (and, once wired, mic feed) |
+| `0x04` | QUIET_ON | — | stop bursts; the audio stream is zeroed at the tee, so nothing leaves the device and nothing is written (a running session's WAV keeps its timing) |
 | `0x05` | QUIET_OFF | — | |
 | `0x06` | CANCEL | — | abort an in-progress burst |
 
@@ -149,8 +164,11 @@ boot_id,millis,epoch_ms,type,detail
 
 `epoch_ms` is 0 when unsynced. Types: `boot`, `sync`, `session_start`,
 `session_stop`, `burst_start` (detail: `src,hint,count,interval`),
-`burst_frame` (detail: path), `burst_end`, `quiet_on`, `quiet_off`. This one
-file is what the pipeline reads first; everything else is referenced from it.
+`burst_frame` (detail: path), `burst_end`, `quiet_on`, `quiet_off`,
+`candidate` (detail: `hint=… score=…`, score being the device tier's
+distance to the nearest known voice in dB × 10, −10 when nothing was known),
+`thermal` (detail: `normal|warm|hot t=…`, die °C). This one file is what the
+pipeline reads first; everything else is referenced from it.
 
 ## 4. Pipeline (server, `pipeline/`)
 
@@ -187,8 +205,9 @@ because the legal picture changes the moment the wearer crosses into a
 two-party-consent state:
 
 - all biometric processing on the wearer's own hardware; no cloud matching
-- **quiet mode**: button gesture or phone toggle, stops camera and (once
-  wired) mic — bathrooms, medical settings, anyone who asks
+- **quiet mode**: phone toggle (`QUIET_ON`); stops bursts and zeroes the
+  audio stream at the source — bathrooms, medical settings, anyone who asks.
+  A button gesture for it is still open
 - **per-person purge**: "forget S007" deletes voiceprint, burst photos, and
   every transcript segment attributed to them, in one action
 - face-to-voice linking stays manual
@@ -205,11 +224,19 @@ two-party-consent state:
 | 2026-09 | Time via phone sync + boot_id/millis, no RTC part |
 | 2026-09 | Pipeline lives in `pipeline/` for now, target home server |
 | 2026-09 | Personal use; not a product; biometric mitigations kept anyway |
+| 2026-09 | `MIC_BIT_SHIFT` 16: clip headroom over gain; nothing downstream needed the 4× |
+| 2026-09 | 110 Hz high-pass on every channel, applied to the stream itself, not just the selector metric |
+| 2026-09 | Own-voice gate is level-first; the tilt veto ships disabled until measured on the enclosure |
+| 2026-09 | Device-tier novelty is a five-band LTAS with a four-voice gallery; thresholds calibrated from the timeline |
+| 2026-09 | Thermal policy is a throttle plus a timeline record; the BQ25101 cannot be gated from firmware |
 
 ## 7. Open
 
-- Device-tier new-voice detector: needs the own-voice gate first
-- Quiet mode should also stop the mic feed; today it only gates bursts
+- Calibrate `VOICE_OWN_LEVEL`, the tilt veto and `NOVELTY_DIST_DB` from a
+  day of `VOICE:` lines and `candidate` rows; the shipped values are guesses
+- Quiet-mode button gesture (today it is phone-only)
+- Die-to-cell thermal offset: one thermocouple measurement, then move
+  `THERMAL_WARM_C` so it lands on the cell's 45 °C charge limit
 - Retention schedule
 - Whether the phone-tier model is worth building, or whether phone → server
   with the device fallback is enough in practice

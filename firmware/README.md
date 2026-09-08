@@ -1,10 +1,12 @@
-# Belt-Worn Audio Capture Firmware
+# Pendant Capture Firmware
 
 Patched [omiGlass firmware](https://github.com/BasedHardware/omi/tree/main/omiGlass/firmware)
 (BasedHardware/omi @ `1cc793ce2ec9`, MIT — see `LICENSE.upstream`) for a
-belt-worn capture device: XIAO ESP32S3 Sense + INMP441 I2S microphones,
-streaming Opus over BLE to the Omi phone app for live transcription, with a
-button-toggled local video+audio session on the microSD.
+chest-worn pendant: XIAO ESP32S3 Sense + three INMP441 I2S microphones,
+streaming Opus over BLE to the phone for live transcription, with a
+button-toggled local video+audio session on the microSD, a new-voice photo
+burst, and an on-device own-voice gate. What it is all for is in
+[`docs/SPEC.md`](../docs/SPEC.md).
 
 Audio capture is **always on**. Video is the only thing the button toggles,
 and audio is written to SD only while a video session runs, so the two can
@@ -50,19 +52,21 @@ mic suite against both lapel configurations plus the UI suite.
 |---|---|---|
 | D0  | 1  | **Analog node**: battery divider + case button (see below) |
 | D1  | 2  | WS2812 LED data-in (only) |
-| D2  | 3  | Bus 1 SCK (rear mic C + lapel D) |
+| D2  | 3  | Bus 1 SCK (mic C + lapel D) |
 | D3  | 4  | Bus 1 WS |
 | D4  | 5  | Bus 1 SD |
-| D5  | 6  | Bus 0 SCK (case mics A + B) |
+| D5  | 6  | Bus 0 SCK (mics A + B) |
 | D6  | 43 | Bus 0 WS |
 | D7  | 44 | Bus 0 SD |
 | D8  | 7  | microSD SPI SCK (hardwired on Sense board) |
 | D9  | 8  | microSD SPI MISO (hardwired) |
 | D10 | 9  | microSD SPI MOSI (hardwired; CS is GPIO21 internally) |
 
-Per-mic L/R select: **A** (front-up) and **C** (rear) tie L/R → GND;
-**B** (out-up) and lapel **D** tie L/R → 3V3. The lapel connector carries
-bus 1's SCK/WS/SD plus 3V3/GND (5 pins).
+Per-mic L/R select: **A** and **C** tie L/R → GND; **B** and lapel **D**
+tie L/R → 3V3. Which port on the enclosure is A, B or C is an assembly
+choice recorded in that enclosure's README (`hardware/medallion`,
+`hardware/pouch`); the firmware only needs the names to match the wiring.
+The lapel connector carries bus 1's SCK/WS/SD plus 3V3/GND (5 pins).
 
 **Battery + button share one analog node (D0/GPIO1).** Both functions are
 high-impedance analog, so unlike the earlier LED/ADC arrangement they don't
@@ -189,13 +193,13 @@ selectable — an unconnected or noisy input cannot influence the source
 choice however loud it reads — and the serial logs print only the three real
 channels. Set it to `1` when the pod exists; nothing else changes.
 
-That leaves three microphones, all in the case: **A** front-up, **B**
-out-up, **C** rear. They still share bus 1 with the lapel's reserved slot,
-so no wiring changes when the pod arrives.
+That leaves three microphones, all on the pendant's front face: **A**,
+**B**, **C**. C still shares bus 1 with the lapel's reserved slot, so no
+wiring changes when the pod arrives.
 
 Honest note on what this costs: fitting the lapel later is the single
 largest available improvement to transcript quality — roughly 10–20 dB of
-SNR against hip-mounted case mics, more than every firmware change here
+SNR against case mics at the chest, more than every firmware change here
 combined. Phase 1 is expected to transcribe acceptably at conversational
 distance in a quiet room, which is the stated use, and to degrade in noise
 or across a large room in a way the lapel would fix.
@@ -220,27 +224,95 @@ that the camera failed to start and record audio only.
 
 ## Bring-up checklist
 
-1. Flash, open serial monitor. Expect `Initializing quad INMP441 I2S
+1. Flash, open serial monitor. Expect `Initializing INMP441 I2S
    capture...` and both bus pin reports.
 2. Tap each mic in turn; watch the `MIC:` lines follow your taps (A, B, C,
    then plug the lapel and tap D). If a pair is reversed, set
    `MIC_BUS0_SWAP_LR` / `MIC_BUS1_SWAP_LR` to 1 in `config.h` and reflash.
-3. If audio is quiet in the Omi app, lower `MIC_BIT_SHIFT` to 13 (doubles
-   gain) before touching `MIC_GAIN`.
+3. The stream is deliberately 12 dB quieter than it was at `MIC_BIT_SHIFT`
+   14: the headroom now goes to shouts and slammed doors, and nothing
+   downstream needs the gain (ASR and speaker models normalise level). If
+   the app's live audio is unusably quiet, lower `MIC_BIT_SHIFT` to 15
+   (doubles it) and halve every level threshold in the table below.
 4. Pair in the Omi app as usual — the device advertises the standard OMI
    service; nothing app-side knows or cares that the mics changed.
+5. Calibrate the own-voice gate (next section). Until you do, the device
+   tier is running on guessed thresholds.
+
+## Own-voice gate and the device-tier new-voice detector
+
+Every 100 ms block of the selected mono stream is high-passed at 110 Hz,
+run through a five-band octave filterbank (250 Hz – 4 kHz), and classified
+as **silence**, **own** (the wearer) or **other**. Segments of *other*
+speech are averaged into a coarse spectral profile and compared with a
+four-entry gallery of voices heard in the last ten minutes; a segment that
+matches none is a **candidate**, which arms the burst hold-off
+(`docs/SPEC.md` §2.1). Pure logic lives in `voice_dsp.h` and
+`voice_logic.h`; `test/test_voice.cpp` drives it with synthetic voices.
+
+The gate is **level-first**. The wearer's mouth is ~25 cm from the pendant
+and nobody else is closer than ~50 cm, so own voice is 6–12 dB louder than
+any partner at equal effort. That is the one cue that does not depend on
+the enclosure. A spectral-tilt veto (own voice reaches the chest off-axis
+and through the body, so it is darker) is there too, but it *does* depend
+on the enclosure and ships disabled.
+
+**Calibration**, from the `VOICE:` line that prints every 10 s:
+
+```
+VOICE: other level=14 floor=1.6 tilt=+2.3 bands=41/44/40/37/33 known=1
+```
+
+1. Sit in a quiet room. `floor` should settle near the room level (1–3).
+2. Talk normally for a minute, reading the line. Note `level` and `tilt`.
+3. Have someone talk to you from 1 m, then from 0.5 m. Note both again.
+4. Set `VOICE_OWN_LEVEL` between your level and the 0.5 m partner's. If the
+   two overlap, set `VOICE_OWN_TILT_MIN_DB` between your tilt and theirs —
+   that is what the veto is for.
+5. Wear it for a day. Every scored segment prints
+   `VOICE: segment matched slot N dist=X` or `VOICE: new-voice candidate
+   dist=X`, and every candidate that armed a hold-off is a `candidate` row
+   in `events.csv` with its score. Same-speaker distances cluster low,
+   genuinely new voices high; put `NOVELTY_DIST_DB` between the clusters.
+   The shipped 3.0 dB comes from synthetic voices and is a starting point,
+   not a measurement.
+
+What it cannot do: tell two similar voices apart, or notice a new voice
+that only ever speaks in bursts shorter than `NOVELTY_MIN_BLOCKS` (1.5 s).
+It is the fallback tier; the phone and server verdicts override it.
+
+## Thermal
+
+`thermal.h` samples the S3 die every 20 s with the battery check. **It does
+not gate charging** — the XIAO's BQ25101 has no thermistor and no reachable
+enable pin, so firmware cannot stop it charging a hot cell. What it does:
+above `THERMAL_WARM_C` bursts pause; above `THERMAL_HOT_C` a running video
+session stops and the CPU drops to its floor; each transition is a
+`thermal` row in `events.csv`. The die runs 10–20 °C above the cell under
+load; measure that offset once with a thermocouple on the cell and move the
+thresholds so `WARM` lands at the cell's 45 °C charge limit.
 
 ## Tuning knobs (`src/config.h`)
 
 | Define | Default | Meaning |
 |---|---|---|
-| `MIC_BIT_SHIFT` | 14 | 32-bit slot → int16; smaller = louder (13 ≈ 2x) |
+| `MIC_BIT_SHIFT` | 16 | 32-bit slot → int16; smaller = louder (15 ≈ 2x). Rescale every level below if you change it |
+| `MIC_HIGHPASS_HZ` | 110 | First-order high-pass on every channel; 0 disables |
 | `MIC_LAPEL_FITTED` | 0 | Set 1 when the lapel pod exists |
-| `MIC_LAPEL_PRESENT_LEVEL` | 40 | Level that marks the lapel live |
+| `MIC_LAPEL_PRESENT_LEVEL` | 10 | Level that marks the lapel live |
 | `MIC_LAPEL_HOLD_MS` | 5000 | Lapel stays selected this long after signal |
 | `MIC_SWITCH_RATIO_*`, `MIC_SWITCH_BLOCKS` | 3/2, 3 | Case-mic switch hysteresis |
-| `MIC_SWITCH_SILENCE_LEVEL` | 60 | Changeover only below this level (no mid-word splices) |
-| `MIC_STATS_INTERVAL_MS` | 10000 | Cadence of the levels log line |
+| `MIC_SWITCH_SILENCE_LEVEL` | 8 | Changeover only below this level (no mid-word splices) |
+| `MIC_STATS_INTERVAL_MS` | 10000 | Cadence of the `MIC:` and `VOICE:` log lines |
+| `VOICE_SPEECH_RATIO`, `VOICE_SPEECH_MIN_LEVEL` | 3, 6 | Speech: above floor × ratio and above the absolute floor |
+| `VOICE_OWN_LEVEL` | 30 | Own voice above this level — **calibrate** |
+| `VOICE_OWN_TILT_MIN_DB` | off | Own voice also needs tilt ≥ this; set from the `VOICE:` line |
+| `VOICE_HANGOVER_MS` | 300 | A state outlives its last qualifying block by this |
+| `NOVELTY_MIN_BLOCKS` | 15 | 1.5 s of *other* speech before a segment is scored |
+| `NOVELTY_SEGMENT_GAP_MS` | 1500 | Silence this long ends a segment |
+| `NOVELTY_DIST_DB` | 3.0 | Band-profile distance that counts as a new voice — **calibrate** |
+| `NOVELTY_FORGET_MS` | 10 min | A voice unheard this long is new again |
+| `THERMAL_WARM_C`, `THERMAL_HOT_C`, `THERMAL_HYST_C` | 60, 70, 5 | Die temperature thresholds (see Thermal) |
 | `CAMERA_FRAME_SIZE` | `FRAMESIZE_UXGA` | 1600×1200 |
 | `CAMERA_JPEG_QUALITY` | 10 | 10–63, **lower is better** |
 | `VIDEO_FRAME_INTERVAL_MS` | 30000 | One frame per 30s |

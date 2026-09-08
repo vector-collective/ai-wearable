@@ -11,6 +11,7 @@
 #include "esp_sleep.h"
 #include "mic.h"
 #include "opus_encoder.h"
+#include "thermal.h"
 #include "burst.h"
 #include "events.h"
 #include "ota.h"
@@ -207,11 +208,38 @@ void enterPowerSave()
     }
 }
 
+// Thermal state (thermal.h): sampled with the battery check. HOT pins the
+// CPU at its floor regardless of the power-save state.
+static thermal_t thermal;
+static const thermal_cfg_t thermal_cfg = {THERMAL_WARM_C, THERMAL_HOT_C, THERMAL_HYST_C};
+
 void exitPowerSave()
 {
     if (powerSaveMode) {
-        setCpuFrequencyMhz(NORMAL_CPU_FREQ_MHZ); // Back to 80MHz
+        setCpuFrequencyMhz(thermal.state == THERMAL_HOT ? MIN_CPU_FREQ_MHZ : NORMAL_CPU_FREQ_MHZ);
         powerSaveMode = false;
+    }
+}
+
+static void sampleThermal()
+{
+    int before = thermal.state;
+    float t = temperatureRead(); // S3 die, degrees C
+    int after = thermal_step(&thermal, &thermal_cfg, t);
+    if (after == before) {
+        return;
+    }
+    events_logf(EV_THERMAL, "%s t=%.0f", thermal_state_name(after), t);
+    Serial.printf("THERMAL: %s -> %s (die %.0f C)\n", thermal_state_name(before), thermal_state_name(after), t);
+    burst_set_hold(after != THERMAL_NORMAL);
+    if (after == THERMAL_HOT) {
+        if (sd_recorder_active() || sd_recorder_starting()) {
+            Serial.println("THERMAL: stopping the video session");
+            sd_recorder_stop();
+        }
+        setCpuFrequencyMhz(MIN_CPU_FREQ_MHZ);
+    } else if (before == THERMAL_HOT && !powerSaveMode) {
+        setCpuFrequencyMhz(NORMAL_CPU_FREQ_MHZ);
     }
 }
 
@@ -292,10 +320,25 @@ void shutdownDevice()
 // -------------------------------------------------------------------------
 void onMicData(int16_t *data, size_t samples)
 {
+    // Quiet mode: nothing leaves the device and nothing is written. The
+    // stream is zeroed rather than skipped so the BLE link and a running
+    // session's WAV keep their timing; Opus encodes silence in a few bytes.
+    if (burst_quiet()) {
+        memset(data, 0, samples * sizeof(int16_t));
+    }
     // Feed PCM data to Opus encoder
     opus_receive_pcm(data, samples);
     // Tee the same selected-mic stream into the local SD recording, if active
     sd_recorder_feed_audio(data, samples);
+}
+
+// Device-tier new-voice candidate from mic.cpp's novelty detector. Only arms
+// a hold-off; a remote verdict inside it wins (docs/SPEC.md 2.1).
+static void onVoiceEvent(uint8_t event, int16_t arg)
+{
+    if (event == MIC_VOICE_CANDIDATE) {
+        burst_local_candidate(0, arg);
+    }
 }
 
 void onOpusEncoded(uint8_t *data, size_t len)
@@ -859,6 +902,7 @@ void setup_app()
     // Timeline first, so the boot event has the lowest millis of the boot
     events_init();
     burst_init();
+    thermal_init(&thermal);
 
     // Case UI: button + WS2812 + battery gauge
     ui_init();
@@ -902,6 +946,7 @@ void setup_app()
 
         if (mic_start()) {
             mic_set_callback(onMicData);
+            mic_set_voice_callback(onVoiceEvent);
             Serial.println("Audio subsystem initialized successfully.");
         } else {
             Serial.println("Failed to start microphone!");
@@ -953,6 +998,7 @@ void loop_app()
     if (now - lastBatteryCheck >= BATTERY_TASK_INTERVAL_MS) {
         readBatteryLevel();
         updateBatteryService();
+        sampleThermal();
         lastBatteryCheck = now;
     }
 

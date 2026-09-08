@@ -59,7 +59,7 @@ Panel coordinates, millimetres from the front panel's bottom-left corner:
 | button | 62 | 15 | 12.5 |
 | snap, cap half | 39 | 102 | 4.0 |
 
-The mics move relative to the medallion, deliberately. There the sculpt
+A, B and C are the firmware's names (`firmware/src/config.h`: A and C tie L/R to GND, B to 3V3). The mics move relative to the medallion, deliberately. There the sculpt
 squeezed them to 18.8 / 20.2 / 29.2 mm; a blank panel has no artwork to dodge,
 so this opens them to **46 / 37 / 37 mm**. Wider spacing gives a bigger level
 difference between your own voice and everyone else's, which is what the

@@ -19,6 +19,8 @@ typedef enum {
     EV_BURST_END,
     EV_QUIET_ON,
     EV_QUIET_OFF,
+    EV_CANDIDATE, // device-tier new-voice candidate armed a hold-off
+    EV_THERMAL,   // thermal state changed (thermal.h)
 } event_type_t;
 
 #define EVENT_DETAIL_LEN 48
@@ -84,6 +86,8 @@ static inline const char *event_type_name(uint8_t t)
     case EV_BURST_END:     return "burst_end";
     case EV_QUIET_ON:      return "quiet_on";
     case EV_QUIET_OFF:     return "quiet_off";
+    case EV_CANDIDATE:     return "candidate";
+    case EV_THERMAL:       return "thermal";
     default:               return "unknown";
     }
 }

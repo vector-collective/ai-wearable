@@ -81,13 +81,17 @@ inline esp_err_t i2s_zero_dma_buffer(i2s_port_t) { return ESP_OK; }
 inline esp_err_t i2s_stop(i2s_port_t) { return ESP_OK; }
 inline esp_err_t i2s_driver_uninstall(i2s_port_t) { return ESP_OK; }
 
+// The synthetic signal alternates sign every frame (a square wave at
+// Nyquist) so it survives the high-pass in mic.cpp; a DC level would not.
+// Its mean-abs is exactly the configured amplitude.
 inline esp_err_t i2s_read(i2s_port_t port, void *dest, size_t size, size_t *bytes_read, TickType_t)
 {
     int32_t *buf = (int32_t *) dest;
     size_t frames = size / (2 * sizeof(int32_t));
     for (size_t i = 0; i < frames; i++) {
-        buf[2 * i + 0] = g_chan_amp[port][0];
-        buf[2 * i + 1] = g_chan_amp[port][1];
+        int32_t sgn = (i & 1) ? -1 : 1;
+        buf[2 * i + 0] = g_chan_amp[port][0] * sgn;
+        buf[2 * i + 1] = g_chan_amp[port][1] * sgn;
     }
     *bytes_read = frames * 2 * sizeof(int32_t);
     return ESP_OK;

@@ -21,6 +21,13 @@ one or more `sync` rows carrying `millis=… epoch=…`; resolve any event's wal
 time by interpolating from the nearest anchor in the same boot. `epoch_ms` of
 0 means unsynced at the time — not missing.
 
+Two row types exist for tuning the device tier rather than for the timeline
+itself: `candidate` (detail `hint=0 score=<dB×10>`; −10 means the device knew
+no voices yet) marks a device-tier new-voice candidate that armed a hold-off,
+and `thermal` marks a die-temperature state change. Joining `candidate` rows
+against the diarizer's own new-speaker decisions gives the confusion matrix
+for `NOVELTY_DIST_DB`.
+
 ## Stages
 
 | # | Stage | In | Out |
