@@ -12,7 +12,7 @@ rigid photopolymer — and it replaces the single bail with two cord ears.
 | Case | Ø70.0 × 24.6mm (front 6.5 + back 18.1); 63mm across the ears |
 | With relief | 29.4mm thick, Ø71.7 across the arm tips |
 | Interior | 21.0mm against a 20.2mm stack — +0.8mm, +0.59 at 1% cure shrink |
-| Fasteners | 4 × M2×20 button head into **captured M2 nuts**, bolt circle r=30.5 |
+| Fasteners | 4 × M2×20 button head into **captured M2 nuts** in side-entry slots under a 2.3mm ceiling (v9.1), bolt circle r=30.5 |
 | Cord | 3–4mm round leather through two Ø5.5 ears at 45° and 135°, 55mm apart |
 | Adhesive | E7000 relief-to-shell; **PSA foam** (3M 467MP) for mic gaskets, not E7000 |
 | Wiring | every joint hand-soldered; no pin headers anywhere |
@@ -64,7 +64,7 @@ sucker texture, 50µm is fine for the back.
 
 **Wash and cure.** Two-stage 95% IPA, 3 min each with agitation, then
 compressed air through every port before curing: the 3 × 2.2mm mic ports, the
-4 screw bores, both ear holes, the four hex pockets. A cured plug in a 2.2mm
+4 screw bores, both ear holes, the four nut slots. A cured plug in a 2.2mm
 port is a dead mic — verify each with a 2.0mm drill shank. Cure with supports
 on, ≤40°C, 2 × 3 min flipped; expect ≤0.2mm bow on the disc. Flat-sand both
 rim faces on 320 over glass to remove the low-edge nubs. If the front is two
@@ -80,7 +80,7 @@ it face-up and it needs no support on the sculpt at all.
 
 | | FDM (v8) | Resin (v9) | Why |
 |---|---|---|---|
-| Fastening | heat-set brass inserts | captured M2 nuts, hex pocket 4.25 AF × 1.8 | heat-set is a thermoplastic technique; tapping strips in 3–5 reopenings |
+| Fastening | heat-set brass inserts | captured M2 nuts in a side-entry slot 4.25 × 1.8 under a 2.3mm ceiling (v9.1) | heat-set is a thermoplastic technique; tapping strips in 3–5 reopenings; see the v9.1 note below |
 | Bolt circle | r=29 | r=30.5 | an Ø8 boss at r=29 bit 0.75mm into a max-envelope cell |
 | Hole allowance | +0.6 | +0.25 | resin undersizes ~0.1 from light bleed, not 0.4 |
 | Register | 0.8 tongue in a slot, 0.1/side | 1.0 tongue in a rebate, 0.15/side, 0.3×45° lead-in | the slot left a 0.1mm fin the wash snaps off; bleed narrows slots, so *more* clearance |
@@ -89,7 +89,7 @@ it face-up and it needs no support on the sculpt at all.
 | Battery lip | 0.6 wall, 0.6 off-centre | 1.0 wall, centred, notched at the button | 0.6 chips; the offset was a v5 bug; the button body now reaches the lip |
 | back_d | 17.8 | 18.1 | 1% shrink on the old 20.7 interior went negative against a ±0.3 stack |
 | Chest edge | sharp | r=2.0 round-over | worn against skin daily |
-| Screw heads | socket cap, 0.6 proud | ISO 7380 button, 0.2 sub-flush | same reason |
+| Screw heads | socket cap, 0.6 proud | ISO 7380 button, 1.2 sub-flush in a 2.5 counterbore (v9.1) | same reason; the deeper bore is what lets an M2×20 reach through the ceiling and the whole nut |
 
 The switch moved 240° → 243° (its nut hit the 225° boss at r=30.5) and its
 bore grew 7.0 → 7.2 (zero clearance on an M7 bushing). The USB-C jack now
@@ -115,15 +115,45 @@ the top-centre mouth, overhand knot on the outboard mouth — 7mm in 3mm cord,
 
 ## Assembly
 
-1. Wash, post-cure, flat-sand rim faces. Dry-fit tongue to rebate, cell, button, USB-C, switch, LED disc. Drop an M2 nut into each front hex pocket and check it sits below the parting face.
+1. Wash, post-cure, flat-sand rim faces. Dry-fit tongue to rebate, cell, button, USB-C, switch, LED disc. Slide an M2 nut flats-first into each front boss slot from the cavity side until it stops; it should sit under the ceiling with the screw bore over its hole. A 4.0 AF nut in the 4.25 slot should slide with light finger pressure — if it binds, the slot narrowed from bleed; dress the walls with a 4mm flat needle file, never the ceiling.
 2. If the front is two parts: scuff both bond faces 320–400, IPA wipe, dry 10 min. E7000 relief to shell, a Ø2 pin through the camera bore and one mic bore for alignment, 1kg weight, 24h.
 3. Front shell: PSA foam gasket, then mic disc, into each ring. Camera module into the 9.0 seat. Leads 100mm — the shells have to lie open side by side while you solder.
 4. Back shell: button (nut on the flat seat), USB-C (two screws), switch, LED disc on its radial pad. 45mm pigtails.
 5. Cell: leads soldered with the switch in BAT+, laid in with the leads through the notch, 0.6mm puncture guard on top.
 6. Board on the guard, **long axis along X**, centre ≈ (45.4, 38.8). Long axis along Y overlaps mic2's disc by ~5mm; the board's front face sits at z=4.3 and the mic stack tops out at 5.6, so it may not overlap any disc. Solder all tails; fold the stock FPC last.
-7. Close: fold front onto back, dress the harness over the bosses and never across the rebate. Four M2×20 finger-tight plus a quarter turn.
+7. Close with the front shell face-down so the nuts stay on their slot floors, lower the back shell onto it, dress the harness over the bosses and never across the rebate. Four M2×20 finger-tight plus a quarter turn. The nut is pulled up against the ceiling, so the two shells are clamped together — see the v9.1 note.
 8. Cord through each ear, knot outboard, trim. 10kg pull test.
 9. Function test. Wear after 72h of E7000 off-gas.
+
+### v9.1: the nut had to move
+
+v9 dropped the nut into a hex pocket open to the parting face, with the back
+shell's boss covering it. That cannot clamp the front shell: a screw from the
+back pulls its nut *toward the head*, so the nut simply lifted its 0.2mm of
+play and bore on the back shell's boss face. Head, back shell and nut were
+the entire load path; the front shell was held by spigot friction alone, and
+the screws would have felt perfectly tight. v9.1 turns the pocket into a
+side-entry slot with 2.3mm of resin above it; the nut now pulls up against
+the front shell. The counterbore deepened 1.5 → 2.5 so the same M2×20 still
+reaches through the ceiling and the whole nut (tip lands 0.5mm past a 1.6mm
+nut, into a clearance bore whose floor leaves 1.9mm of front wall).
+
+![v9.1 boss cutaway](renders/v91_nut_cutaway.png)
+
+*Front boss at 45°, cut along the slot. Dark green is sectioned resin: the 2.3mm ceiling is the band between the nut and the boss top, the front wall is the band along the bottom, the rim wall is on the right. The nut (hex) sits in the slot with the M2 shank coming down through the ceiling from the back shell; the tip bore is the small notch under the nut.*
+
+Bearing stress at 100N preload over the nut's face is about 11 MPa on a
+2.3mm ceiling spanning the 4.25 slot — roughly 12 MPa in bending, against
+40–70 MPa flexural for a tough resin. Standard rigid resin is again the
+wrong material here.
+
+**Nuts.** Any DIN 934 / ISO 4032 M2 (4.0 AF, 1.6 tall, M2×0.4 coarse) fits;
+a thin 1.5 nut also fits with 0.3 of play and 3.75 threads engaged, which is
+fine for finger-tight plus a quarter turn. Black-oxide carbon steel is a
+cosmetic finish, not corrosion protection, but the nuts live inside the
+front boss under the back shell and see no skin or sweat; A2 stainless is
+the belt-and-braces choice, not a requirement. Check with calipers that the
+flats read 4.0 — "4mm width" on a listing is across flats for M2.
 
 **Most likely first-build failure is step 7:** nine leads plus the FPC in a
 0.5mm Z margin with a board nothing locates. A lead pinched across the rebate

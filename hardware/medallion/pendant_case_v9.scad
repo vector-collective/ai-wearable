@@ -1,15 +1,17 @@
 // =====================================================================
-// KRAKEN MEDALLION v9 - resin, and two cord lugs.
+// KRAKEN MEDALLION v9.1 - resin, and two cord lugs.
 //
 // FIRST UNIT PRINTS ON A CREALITY HALOT-MAGE 8K in a rigid photopolymer.
 // Three things change because of that, none of them cosmetic:
 //
 //   1. HEAT-SET INSERTS ARE GONE. They are a thermoplastic technique - the
 //      brass melts its way into PLA. Resin is a thermoset and does not melt;
-//      an insert set with a soldering iron just chars the boss. The front
-//      bosses are now TAPPED M2 directly in the resin (pilot 1.65, tap
-//      M2x0.4, resin taps cleanly at this wall thickness). Screws still
-//      enter from the back.
+//      an insert set with a soldering iron just chars the boss. Tapping the
+//      resin was rejected by both reviews (strips in 3-5 reopenings). Each
+//      front boss now captures a DIN 934 M2 nut in a side-entry slot under
+//      a resin ceiling; screws still enter from the back. (v9.1: the v9
+//      hex pocket was open to the parting face and could not clamp the
+//      front shell - see the fasteners block.)
 //   2. HOLE COMPENSATION SHRINKS. FDM printed holes 0.1-0.4 undersize and the
 //      file carried +0.4..+0.6 to cover it. An 8K mono LCD prints holes
 //      ~0.05-0.15 undersize from light bleed and nothing else. The
@@ -164,17 +166,35 @@ led_window_d = 6.4;
 // v5-v8 used heat-set brass inserts, which cannot be set in a thermoset.
 // Tapping M2 into rigid resin was the next idea and both reviews rejected
 // it for a case opened every battery swap: 3-5 cycles and it strips or
-// cracks. So: a DIN 934 M2 nut (4.0 AF x 1.6) drops into a hex pocket at
-// the top of each front boss, the back shell's boss face covers it, and an
-// M2x20 comes through from the back. Load on the resin is pure
+// cracks. So: a DIN 934 M2 nut (4.0 AF x 1.6) is captured in each front
+// boss and an M2x20 comes through from the back. Load on the resin is pure
 // compression. No thread, no adhesive, and a spare nut fixes anything.
-boss_od = 8.0;            // 1.55 wall at the hex corners
-nut_af = 4.25;            // 4.0 nut + 0.25
-nut_pocket_h = 1.8;       // 1.6 nut + 0.2
-nut_clear_d = 2.4;        // screw tip clearance below the nut
-nut_clear_h = 2.5;        // floor stays 2.2 thick under it
+//
+// v9.1: THE NUT SITS IN A SIDE-ENTRY SLOT UNDER A RESIN CEILING, not in a
+// hex pocket open to the parting face. The v9 pocket could not clamp the
+// front shell at all: a screw from the back pulls its nut TOWARD the head,
+// so a nut in a pocket open to the parting face simply lifts its 0.2 of
+// play and bears on the BACK shell's boss face. Head, back shell and nut
+// became the whole load path and the front shell was held by spigot
+// friction alone - and it would have felt tight. With a ceiling the nut
+// pulls up against front-shell resin and the shells are clamped together.
+// The slot enters from the boss's cavity side (radially inward), 4.25 wide
+// x 1.8 tall; the nut slides in flats-first and cannot turn.
+boss_od = 8.0;            // 1.9 wall either side of the slot
+nut_af = 4.25;            // 4.0 nut + 0.25, across the slot
+nut_ac = 4.0/cos(30);     // 4.62 across corners, along the slot
+nut_slot_h = 1.8;         // 1.6 nut + 0.2 (a 1.5 nut has 0.3 of play; fine)
+nut_slot_z = 2.4;         // slot floor: front wall 1.8 + 0.6
+nut_ceiling = front_d - nut_slot_z - nut_slot_h;   // 2.3 of resin the nut clamps against
+nut_slot_in = 5.0;        // slot runs this far past the boss's inner face into the cavity
+nut_clear_d = 2.4;        // screw tip clearance bore below the slot floor
+nut_clear_z = 1.9;        // its floor: front wall 1.8 + 0.1
 screw_clear_d = 2.3; screw_head_d = 4.0;   // ISO 7380 M2 button head, 3.8 x 1.3 tall
-screw_cbore_h = 1.5;                       // head sits 0.2 sub-flush on the chest face
+screw_cbore_h = 2.5;      // v9.1: was 1.5. Head 1.2 sub-flush. Deeper so an M2x20
+                          // reaches through the ceiling and the whole nut:
+                          // head underside 15.6 behind the parting face, tip 4.4
+                          // ahead of it = z 2.1 in the front shell, 0.5 past a
+                          // 1.6 nut's far face (2.6) and 0.2 into the clearance bore
 boss_xy = [[56.57,56.57],[13.43,56.57],[13.43,13.43],[56.57,13.43]];  // v9: r=30.5. At r=29 an
                           // 8.0 boss bit 0.75 into a max-envelope cell; at 30.5 it clears by 0.3
                           // and fuses 1.3 into the wall, which is fine in resin.
@@ -386,12 +406,23 @@ module front_shell() {
                     translate([0,0,-0.5]) cube([9.0,9.0,6], center=true);   // v9: 0.25/side, ~0.15 after bleed
                 }
         }
-        boss_positions() {
-            // hex pocket, open to the parting face. $fn=6 takes the
-            // circumscribed diameter: AF / cos(30)
-            translate([0,0,front_d-nut_pocket_h]) cylinder(d=nut_af/cos(30), h=nut_pocket_h+1, $fn=6);
-            translate([0,0,front_d-nut_pocket_h-nut_clear_h]) cylinder(d=nut_clear_d, h=nut_clear_h+0.1);
+        nut_slot_cut();
+    }
+}
+
+// v9.1 captured-nut slot in each front boss. Local +x points at the case
+// centre, so the slot's open mouth is on the cavity side and its closed end
+// sits 0.2 past the nut's outer corner, 2.0 inside the outer surface.
+module nut_slot_cut() {
+    for (p = boss_xy) {
+        a = atan2(cy - p[1], cx - p[0]);
+        translate([p[0], p[1], 0]) rotate([0, 0, a]) {
+            translate([-(nut_ac/2 + 0.2), -nut_af/2, nut_slot_z])
+                cube([nut_ac/2 + 0.2 + boss_od/2 + nut_slot_in, nut_af, nut_slot_h]);
         }
+        // screw clearance through the ceiling, and tip clearance under the floor
+        translate([p[0], p[1], nut_slot_z + nut_slot_h - 0.01]) cylinder(d=screw_clear_d, h=nut_ceiling + 1);
+        translate([p[0], p[1], nut_clear_z]) cylinder(d=nut_clear_d, h=nut_slot_z - nut_clear_z + 0.01);
     }
 }
 
