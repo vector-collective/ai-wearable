@@ -27,7 +27,7 @@ rigid photopolymer — and it replaces the single bail with two cord ears.
 | `front_shell.stl` | art-face shell |
 | `front_fused.stl` | **front shell + relief as one solid — the recommended resin print** |
 | `back_shell.stl` | battery, controls, ears |
-| `kraken_wrap_bored.stl` | the relief alone, for a two-part front |
+| `kraken_wrap_bored.stl` | the relief alone, for a two-part front — **print this plus `front_shell.stl` if the relief is a second resin**; unchanged in v9.1 |
 | `kraken_body.stl`, `kraken_accents.stl` | two-material split for an MMU FDM printer; not used on resin |
 | `build_kraken.py`, `split_materials.py` | regenerate the relief from the Meshy 3MF, and split it |
 
@@ -75,6 +75,22 @@ for its first cure.
 material and support reasons. On resin neither applies, and one solid removes
 the glue line, the alignment step, and the 0.3mm bond from the Z stack. Print
 it face-up and it needs no support on the sculpt at all.
+
+**Two-part front in a second resin.** Print `front_shell.stl` and
+`kraken_wrap_bored.stl`, not `front_fused.stl`. The relief file did not change
+in v9.1: the fastener rework is entirely inside the shell, 2.4mm and deeper
+behind the face, and the glue face and its four apertures are untouched.
+Sitting on the face rather than sunk into it, the relief's arms hug the rim
+fillet with 13mm³ of nominal overlap in total, a skim the 320-grit flat-sand
+of the glue face removes; the stack is 0.25mm taller than the fused solid.
+What matters about the second resin: it carries no load beyond its own arm
+tips, so a standard rigid art resin is acceptable here where it is not for
+the shells; it must be opaque, or the Ø9 camera bore's walls pipe ambient
+light onto the sensor — for a translucent colour, paint the inside of the
+bore matt black before bonding; E7000 bonds any two acrylate photopolymers
+alike after the scuff-and-IPA in step 2; and two resins shrink differently
+in post-cure, but even a 0.3% difference is 0.1mm across the relief and the
+Ø2 alignment pins through the camera bore and one mic bore locate it.
 
 ## What resin changed in the design
 
